@@ -52,6 +52,6 @@ public:
     static std::string GetWord(int nIndex);
 };
 
-void BIP39GenerateSeed(const SecureVector& vchMnemonic, const SecureString& passphrase, SecureVector& vchSeed);
+void BIP39GenerateSeed(const std::string& strMnemonic, const SecureString& strPassphrase, SecureVector& vchSeed);
 
 #endif // BITCOIN_WALLET_BIP39_H

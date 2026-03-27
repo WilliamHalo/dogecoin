@@ -66,11 +66,6 @@ UniValue createmnemonic(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_WALLET_ERROR, "Failed to create mnemonic from entropy");
     }
 
-    if (!strPassphrase.empty()) {
-        SecureVector vchSeed;
-        BIP39GenerateSeed(mnemonic.GetEntropy(), strPassphrase, vchSeed);
-    }
-
     std::string strMnemonic = mnemonic.GetMnemonic();
 
     if (!pwalletMain->ImportMnemonic(strMnemonic, strPassphrase, false)) {
@@ -124,7 +119,7 @@ UniValue importmnemonic(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_WALLET_ERROR, "Failed to import mnemonic");
     }
 
-    return NullUniValue;
+    return true;
 }
 
 UniValue exportmnemonic(const JSONRPCRequest& request)
@@ -148,7 +143,7 @@ UniValue exportmnemonic(const JSONRPCRequest& request)
 
     EnsureWalletIsUnlocked();
 
-    if (!pwalletMain->HasMnemonicSeed()) {
+    if (!pwalletMain->HasMnemonic()) {
         throw JSONRPCError(RPC_WALLET_ERROR, "Wallet does not have a mnemonic seed");
     }
 

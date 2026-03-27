@@ -43,18 +43,23 @@ enum DBErrors
 
 static const int BIP39_SEED_LEN = 64;
 
+typedef std::vector<unsigned char, secure_allocator<unsigned char> > SecureVector;
+
 class CHDChain
 {
 public:
     uint32_t nExternalChainCounter;
     CKeyID masterKeyID;
 
-    static const int CURRENT_VERSION = 2;
+    static const int CURRENT_VERSION = 3;
     static const int VERSION_WITH_BIP39 = 2;
+    static const int VERSION_WITH_MNEMONIC_STRING = 3;
     int nVersion;
 
-    std::vector<unsigned char> vchMnemonicSeed;
-    std::vector<unsigned char> vchCryptedMnemonicSeed;
+    SecureVector vchMnemonic;
+    SecureVector vchCryptedMnemonic;
+    std::vector<unsigned char> vchEncryptionSalt;
+    SecureString strPassphraseHash;
 
     CHDChain() { SetNull(); }
     ADD_SERIALIZE_METHODS;
@@ -65,8 +70,17 @@ public:
         READWRITE(nExternalChainCounter);
         READWRITE(masterKeyID);
         if (this->nVersion >= VERSION_WITH_BIP39) {
-            READWRITE(vchMnemonicSeed);
-            READWRITE(vchCryptedMnemonicSeed);
+            if (this->nVersion >= VERSION_WITH_MNEMONIC_STRING) {
+                READWRITE(vchMnemonic);
+                READWRITE(vchCryptedMnemonic);
+                READWRITE(vchEncryptionSalt);
+            } else {
+                std::vector<unsigned char> vchMnemonicSeed;
+                std::vector<unsigned char> vchCryptedMnemonicSeed;
+                READWRITE(vchMnemonicSeed);
+                READWRITE(vchCryptedMnemonicSeed);
+                vchMnemonic.assign(vchMnemonicSeed.begin(), vchMnemonicSeed.end());
+            }
         }
     }
 
@@ -75,18 +89,30 @@ public:
         nVersion = CHDChain::CURRENT_VERSION;
         nExternalChainCounter = 0;
         masterKeyID.SetNull();
-        vchMnemonicSeed.clear();
-        vchCryptedMnemonicSeed.clear();
+        vchMnemonic.clear();
+        vchCryptedMnemonic.clear();
+        vchEncryptionSalt.clear();
+        strPassphraseHash.clear();
     }
 
-    bool HasMnemonicSeed() const
+    bool HasMnemonic() const
     {
-        return vchMnemonicSeed.size() == BIP39_SEED_LEN || vchCryptedMnemonicSeed.size() > 0;
+        return !vchMnemonic.empty() || !vchCryptedMnemonic.empty();
     }
 
-    bool IsMnemonicSeedCrypted() const
+    bool IsMnemonicCrypted() const
     {
-        return vchCryptedMnemonicSeed.size() > 0;
+        return !vchCryptedMnemonic.empty();
+    }
+    
+    void SetEncryptionSalt(const std::vector<unsigned char>& salt)
+    {
+        vchEncryptionSalt = salt;
+    }
+    
+    const std::vector<unsigned char>& GetEncryptionSalt() const
+    {
+        return vchEncryptionSalt;
     }
 };
 

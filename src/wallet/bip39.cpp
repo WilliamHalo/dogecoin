@@ -8,11 +8,13 @@
 #include "crypto/hmac_sha512.h"
 #include "crypto/sha256.h"
 #include "random.h"
+#include "support/cleanse.h"
 #include "utilstrencodings.h"
 
 #include <boost/algorithm/string.hpp>
 
 static const char* BIP39_SEED_KEY = "mnemonic";
+static const int BIP39_PBKDF2_ITERATIONS = 2048;
 
 std::string CBIP39Mnemonic::GetMnemonic() const
 {
@@ -64,7 +66,8 @@ bool CBIP39Mnemonic::SetEntropy(const SecureVector& entropy)
     }
 
     vchSeed.clear();
-    BIP39GenerateSeed(vchEntropy, strPassphrase, vchSeed);
+    std::string strMnemonic = GetMnemonic();
+    BIP39GenerateSeed(strMnemonic, strPassphrase, vchSeed);
 
     fValid = true;
     return true;
@@ -139,7 +142,8 @@ bool CBIP39Mnemonic::SetMnemonic(const std::vector<std::string>& words, const Se
     }
 
     vchSeed.clear();
-    BIP39GenerateSeed(vchEntropy, strPassphrase, vchSeed);
+    std::string strMnemonic = GetMnemonic();
+    BIP39GenerateSeed(strMnemonic, strPassphrase, vchSeed);
 
     fValid = true;
     return true;
@@ -195,18 +199,37 @@ std::string CBIP39Mnemonic::GetWord(int nIndex)
     return BIP39_WORDS_EN[nIndex];
 }
 
-void BIP39GenerateSeed(const SecureVector& vchEntropy, const SecureString& passphrase, SecureVector& vchSeed)
+void BIP39GenerateSeed(const std::string& strMnemonic, const SecureString& strPassphrase, SecureVector& vchSeed)
 {
-    std::vector<unsigned char> vchMnemonic;
-    for (const auto& word : vchEntropy) {
-        vchMnemonic.push_back(word);
-    }
-
-    std::string mnemonicStr(vchMnemonic.begin(), vchMnemonic.end());
-    std::string salt = std::string(BIP39_SEED_KEY) + std::string(passphrase.begin(), passphrase.end());
+    std::string strSalt = std::string(BIP39_SEED_KEY) + std::string(strPassphrase.begin(), strPassphrase.end());
 
     vchSeed.resize(64);
-    CHMAC_SHA512(reinterpret_cast<const unsigned char*>(salt.data()), salt.size())
-        .Write(reinterpret_cast<const unsigned char*>(mnemonicStr.data()), mnemonicStr.size())
-        .Finalize(vchSeed.data());
+
+    const unsigned char* mnemonicData = reinterpret_cast<const unsigned char*>(strMnemonic.data());
+    size_t mnemonicLen = strMnemonic.size();
+    const unsigned char* saltData = reinterpret_cast<const unsigned char*>(strSalt.data());
+    size_t saltLen = strSalt.size();
+
+    unsigned char U[64];
+    unsigned char T[64];
+
+    CHMAC_SHA512 hmac(saltData, saltLen);
+    hmac.Write(mnemonicData, mnemonicLen);
+    hmac.Write(reinterpret_cast<const unsigned char*>("\x01"), 1);
+    hmac.Finalize(U);
+    memcpy(T, U, 64);
+    memcpy(vchSeed.data(), T, 64);
+
+    for (int i = 1; i < BIP39_PBKDF2_ITERATIONS; i++) {
+        CHMAC_SHA512 hmac2(saltData, saltLen);
+        hmac2.Write(U, 64);
+        hmac2.Finalize(U);
+        for (int j = 0; j < 64; j++) {
+            T[j] ^= U[j];
+        }
+    }
+    memcpy(vchSeed.data(), T, 64);
+    
+    memory_cleanse(U, 64);
+    memory_cleanse(T, 64);
 }

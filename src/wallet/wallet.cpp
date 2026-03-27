@@ -1429,9 +1429,9 @@ bool CWallet::IsHDEnabled()
     return !hdChain.masterKeyID.IsNull();
 }
 
-bool CWallet::HasMnemonicSeed() const
+bool CWallet::HasMnemonic() const
 {
-    return hdChain.HasMnemonicSeed();
+    return hdChain.HasMnemonic();
 }
 
 bool CWallet::ImportMnemonic(const std::string& strMnemonic, const SecureString& strPassphrase, bool fRescan)
@@ -1451,7 +1451,7 @@ bool CWallet::ImportMnemonic(const std::string& strMnemonic, const SecureString&
 
     std::set<CKeyID> setKeys;
     GetKeys(setKeys);
-    if (HasMnemonicSeed() || !setKeys.empty()) {
+    if (hdChain.HasMnemonic() || !setKeys.empty()) {
         LogPrintf("%s: Clearing existing wallet keys before importing new mnemonic\n", __func__);
         ClearKeys();
         mapKeyMetadata.clear();
@@ -1469,11 +1469,17 @@ bool CWallet::ImportMnemonic(const std::string& strMnemonic, const SecureString&
         walletdb.EraseRecords("wkey");
     }
 
+    SecureVector vchMnemonic(strMnemonic.begin(), strMnemonic.end());
+    hdChain.vchMnemonic = vchMnemonic;
+    
+    if (!strPassphrase.empty()) {
+        hdChain.strPassphraseHash = strPassphrase;
+    }
+
     SecureVector vchSeed = mnemonic.GetSeed();
-    hdChain.vchMnemonicSeed.assign(vchSeed.begin(), vchSeed.end());
 
     CExtKey masterKey;
-    masterKey.SetMaster(hdChain.vchMnemonicSeed.data(), hdChain.vchMnemonicSeed.size());
+    masterKey.SetMaster(vchSeed.data(), vchSeed.size());
 
     CKey key;
     key = masterKey.key;
@@ -1504,94 +1510,77 @@ bool CWallet::ImportMnemonic(const std::string& strMnemonic, const SecureString&
 
 std::string CWallet::ExportMnemonic() const
 {
-    if (!HasMnemonicSeed()) {
+    if (!hdChain.HasMnemonic()) {
+        LogPrintf("%s: No mnemonic stored in wallet\n", __func__);
         return "";
     }
 
-    if (hdChain.IsMnemonicSeedCrypted()) {
-        LogPrintf("%s: Mnemonic seed is encrypted, unlock wallet first\n", __func__);
+    if (hdChain.IsMnemonicCrypted()) {
+        LogPrintf("%s: Mnemonic is encrypted, unlock wallet first\n", __func__);
         return "";
     }
 
-    return std::string(hdChain.vchMnemonicSeed.begin(), hdChain.vchMnemonicSeed.end());
+    return std::string(hdChain.vchMnemonic.begin(), hdChain.vchMnemonic.end());
 }
 
-bool CWallet::EncryptMnemonicSeed(const CKeyingMaterial& vMasterKey)
+bool CWallet::EncryptMnemonic(const CKeyingMaterial& vMasterKey)
 {
     LOCK(cs_wallet);
 
-    if (hdChain.vchMnemonicSeed.empty()) {
+    if (hdChain.vchMnemonic.empty()) {
         return true;
     }
 
-    CCrypter crypter;
     std::vector<unsigned char> vchSalt(WALLET_CRYPTO_SALT_SIZE);
     GetRandBytes(&vchSalt[0], WALLET_CRYPTO_SALT_SIZE);
-    
+    hdChain.SetEncryptionSalt(vchSalt);
+
+    CCrypter crypter;
     if (!crypter.SetKeyFromPassphrase(SecureString(vMasterKey.begin(), vMasterKey.end()),
                                        vchSalt, 25000, 0)) {
         return false;
     }
 
-    std::vector<unsigned char> vchCryptedSeed;
-    CKeyingMaterial vchSeed(hdChain.vchMnemonicSeed.begin(), hdChain.vchMnemonicSeed.end());
-    if (!crypter.Encrypt(vchSeed, vchCryptedSeed)) {
+    std::vector<unsigned char> vchCryptedStd;
+    CKeyingMaterial vchMnemonicData(hdChain.vchMnemonic.begin(), hdChain.vchMnemonic.end());
+    if (!crypter.Encrypt(vchMnemonicData, vchCryptedStd)) {
         return false;
     }
 
-    hdChain.vchCryptedMnemonicSeed = vchCryptedSeed;
-    memory_cleanse(hdChain.vchMnemonicSeed.data(), hdChain.vchMnemonicSeed.size());
-    hdChain.vchMnemonicSeed.clear();
+    hdChain.vchCryptedMnemonic.assign(vchCryptedStd.begin(), vchCryptedStd.end());
+    memory_cleanse(hdChain.vchMnemonic.data(), hdChain.vchMnemonic.size());
+    hdChain.vchMnemonic.clear();
 
     return CWalletDB(strWalletFile).WriteHDChain(hdChain);
 }
 
-bool CWallet::DecryptMnemonicSeed(const CKeyingMaterial& vMasterKey)
+bool CWallet::DecryptMnemonic(const CKeyingMaterial& vMasterKey)
 {
     LOCK(cs_wallet);
 
-    if (hdChain.vchCryptedMnemonicSeed.empty()) {
+    if (hdChain.vchCryptedMnemonic.empty()) {
         return true;
     }
 
+    if (hdChain.GetEncryptionSalt().empty()) {
+        LogPrintf("%s: No encryption salt stored\n", __func__);
+        return false;
+    }
+
     CCrypter crypter;
-    std::vector<unsigned char> vchSalt(WALLET_CRYPTO_SALT_SIZE);
-    GetRandBytes(&vchSalt[0], WALLET_CRYPTO_SALT_SIZE);
-    
     if (!crypter.SetKeyFromPassphrase(SecureString(vMasterKey.begin(), vMasterKey.end()),
-                                       vchSalt, 25000, 0)) {
+                                       hdChain.GetEncryptionSalt(), 25000, 0)) {
         return false;
     }
 
-    CKeyingMaterial vchSeed;
-    if (!crypter.Decrypt(hdChain.vchCryptedMnemonicSeed, vchSeed)) {
+    std::vector<unsigned char> vchCryptedStd(hdChain.vchCryptedMnemonic.begin(), hdChain.vchCryptedMnemonic.end());
+    CKeyingMaterial vchMnemonic;
+    if (!crypter.Decrypt(vchCryptedStd, vchMnemonic)) {
         return false;
     }
 
-    hdChain.vchMnemonicSeed.assign(vchSeed.begin(), vchSeed.end());
-    memory_cleanse(vchSeed.data(), vchSeed.size());
-
-    return true;
-}
-
-bool CWallet::ClearWalletKeys()
-{
-    LOCK(cs_wallet);
-
-    ClearKeys();
-    mapKeyMetadata.clear();
-    vchDefaultKey = CPubKey();
-    
-    hdChain = CHDChain();
-
-    CWalletDB walletdb(strWalletFile);
-    walletdb.EraseRecords("key");
-    walletdb.EraseRecords("keymeta");
-    walletdb.EraseRecords("mkey");
-    walletdb.EraseRecords("ckey");
-    walletdb.EraseRecords("pool");
-    walletdb.EraseRecords("hdchain");
-    walletdb.EraseRecords("wkey");
+    hdChain.vchMnemonic.assign(vchMnemonic.begin(), vchMnemonic.end());
+    memory_cleanse(vchMnemonic.data(), vchMnemonic.size());
 
     return true;
 }

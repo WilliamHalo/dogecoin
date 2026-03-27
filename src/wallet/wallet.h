@@ -976,10 +976,9 @@ public:
     /* BIP39 mnemonic support */
     bool ImportMnemonic(const std::string& strMnemonic, const SecureString& strPassphrase, bool fRescan = true);
     std::string ExportMnemonic() const;
-    bool HasMnemonicSeed() const;
-    bool EncryptMnemonicSeed(const CKeyingMaterial& vMasterKey);
-    bool DecryptMnemonicSeed(const CKeyingMaterial& vMasterKey);
-    bool ClearWalletKeys();
+    bool HasMnemonic() const;
+    bool EncryptMnemonic(const CKeyingMaterial& vMasterKey);
+    bool DecryptMnemonic(const CKeyingMaterial& vMasterKey);
 };
 
 /** A key allocated from the key pool. */
