@@ -49,7 +49,11 @@ bool fWalletRbf = DEFAULT_WALLET_RBF;
 
 const char * DEFAULT_WALLET_DAT = "wallet.dat";
 const uint32_t BIP32_HARDENED_KEY_LIMIT = 0x80000000;
+const uint32_t BIP44_PURPOSE = 44;
 const uint32_t BIP44_COIN_TYPE = 3;
+const uint32_t BIP44_ACCOUNT = 0;
+const uint32_t BIP44_EXTERNAL_CHAIN = 0;
+const uint32_t BIP44_CHANGE_CHAIN = 1;
 
 /**
  * Fees smaller than this (in satoshi) are considered zero fee (for transaction creation)
