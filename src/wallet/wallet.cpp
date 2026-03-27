@@ -13,6 +13,7 @@
 #include "dogecoin-fees.h"
 #include "fs.h"
 #include "wallet/coincontrol.h"
+#include "wallet/bip39.h"
 #include "consensus/consensus.h"
 #include "consensus/validation.h"
 #include "key.h"
@@ -1416,6 +1417,131 @@ bool CWallet::SetHDChain(const CHDChain& chain, bool memonly)
 bool CWallet::IsHDEnabled()
 {
     return !hdChain.masterKeyID.IsNull();
+}
+
+bool CWallet::HasMnemonicSeed() const
+{
+    return hdChain.HasMnemonicSeed();
+}
+
+bool CWallet::ImportMnemonic(const std::string& strMnemonic, const SecureString& strPassphrase, bool fRescan)
+{
+    LOCK(cs_wallet);
+
+    CBIP39Mnemonic mnemonic;
+    if (!mnemonic.SetMnemonic(strMnemonic, strPassphrase)) {
+        LogPrintf("%s: Invalid mnemonic\n", __func__);
+        return false;
+    }
+
+    if (!mnemonic.IsValid()) {
+        LogPrintf("%s: Mnemonic validation failed\n", __func__);
+        return false;
+    }
+
+    SecureVector vchSeed = mnemonic.GetSeed();
+    hdChain.vchMnemonicSeed.assign(vchSeed.begin(), vchSeed.end());
+
+    CExtKey masterKey;
+    masterKey.SetMaster(hdChain.vchMnemonicSeed.data(), hdChain.vchMnemonicSeed.size());
+
+    CKey key;
+    key = masterKey.key;
+    CPubKey pubkey = key.GetPubKey();
+
+    if (!AddKeyPubKey(key, pubkey)) {
+        LogPrintf("%s: Failed to add master key to wallet\n", __func__);
+        return false;
+    }
+
+    hdChain.masterKeyID = pubkey.GetID();
+    hdChain.nExternalChainCounter = 0;
+
+    SetMinVersion(FEATURE_HD);
+
+    if (!CWalletDB(strWalletFile).WriteHDChain(hdChain)) {
+        LogPrintf("%s: Failed to write HD chain\n", __func__);
+        return false;
+    }
+
+    if (fRescan) {
+        CBlockIndex* pindex = chainActive.Genesis();
+        ScanForWalletTransactions(pindex, true);
+    }
+
+    return true;
+}
+
+std::string CWallet::ExportMnemonic() const
+{
+    if (!HasMnemonicSeed()) {
+        return "";
+    }
+
+    if (hdChain.IsMnemonicSeedCrypted()) {
+        LogPrintf("%s: Mnemonic seed is encrypted, unlock wallet first\n", __func__);
+        return "";
+    }
+
+    return std::string(hdChain.vchMnemonicSeed.begin(), hdChain.vchMnemonicSeed.end());
+}
+
+bool CWallet::EncryptMnemonicSeed(const CKeyingMaterial& vMasterKey)
+{
+    LOCK(cs_wallet);
+
+    if (hdChain.vchMnemonicSeed.empty()) {
+        return true;
+    }
+
+    CCrypter crypter;
+    std::vector<unsigned char> vchSalt(WALLET_CRYPTO_SALT_SIZE);
+    GetRandBytes(&vchSalt[0], WALLET_CRYPTO_SALT_SIZE);
+    
+    if (!crypter.SetKeyFromPassphrase(SecureString(vMasterKey.begin(), vMasterKey.end()),
+                                       vchSalt, 25000, 0)) {
+        return false;
+    }
+
+    std::vector<unsigned char> vchCryptedSeed;
+    CKeyingMaterial vchSeed(hdChain.vchMnemonicSeed.begin(), hdChain.vchMnemonicSeed.end());
+    if (!crypter.Encrypt(vchSeed, vchCryptedSeed)) {
+        return false;
+    }
+
+    hdChain.vchCryptedMnemonicSeed = vchCryptedSeed;
+    memory_cleanse(hdChain.vchMnemonicSeed.data(), hdChain.vchMnemonicSeed.size());
+    hdChain.vchMnemonicSeed.clear();
+
+    return CWalletDB(strWalletFile).WriteHDChain(hdChain);
+}
+
+bool CWallet::DecryptMnemonicSeed(const CKeyingMaterial& vMasterKey)
+{
+    LOCK(cs_wallet);
+
+    if (hdChain.vchCryptedMnemonicSeed.empty()) {
+        return true;
+    }
+
+    CCrypter crypter;
+    std::vector<unsigned char> vchSalt(WALLET_CRYPTO_SALT_SIZE);
+    GetRandBytes(&vchSalt[0], WALLET_CRYPTO_SALT_SIZE);
+    
+    if (!crypter.SetKeyFromPassphrase(SecureString(vMasterKey.begin(), vMasterKey.end()),
+                                       vchSalt, 25000, 0)) {
+        return false;
+    }
+
+    CKeyingMaterial vchSeed;
+    if (!crypter.Decrypt(hdChain.vchCryptedMnemonicSeed, vchSeed)) {
+        return false;
+    }
+
+    hdChain.vchMnemonicSeed.assign(vchSeed.begin(), vchSeed.end());
+    memory_cleanse(vchSeed.data(), vchSeed.size());
+
+    return true;
 }
 
 int64_t CWalletTx::GetTxTime() const

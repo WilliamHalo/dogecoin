@@ -41,15 +41,20 @@ enum DBErrors
     DB_NEED_REWRITE
 };
 
-/* simple HD chain data model */
+static const int BIP39_SEED_LEN = 64;
+
 class CHDChain
 {
 public:
     uint32_t nExternalChainCounter;
-    CKeyID masterKeyID; //!< master key hash160
+    CKeyID masterKeyID;
 
-    static const int CURRENT_VERSION = 1;
+    static const int CURRENT_VERSION = 2;
+    static const int VERSION_WITH_BIP39 = 2;
     int nVersion;
+
+    std::vector<unsigned char> vchMnemonicSeed;
+    std::vector<unsigned char> vchCryptedMnemonicSeed;
 
     CHDChain() { SetNull(); }
     ADD_SERIALIZE_METHODS;
@@ -59,6 +64,10 @@ public:
         READWRITE(this->nVersion);
         READWRITE(nExternalChainCounter);
         READWRITE(masterKeyID);
+        if (this->nVersion >= VERSION_WITH_BIP39) {
+            READWRITE(vchMnemonicSeed);
+            READWRITE(vchCryptedMnemonicSeed);
+        }
     }
 
     void SetNull()
@@ -66,6 +75,18 @@ public:
         nVersion = CHDChain::CURRENT_VERSION;
         nExternalChainCounter = 0;
         masterKeyID.SetNull();
+        vchMnemonicSeed.clear();
+        vchCryptedMnemonicSeed.clear();
+    }
+
+    bool HasMnemonicSeed() const
+    {
+        return vchMnemonicSeed.size() == BIP39_SEED_LEN || vchCryptedMnemonicSeed.size() > 0;
+    }
+
+    bool IsMnemonicSeedCrypted() const
+    {
+        return vchCryptedMnemonicSeed.size() > 0;
     }
 };
 

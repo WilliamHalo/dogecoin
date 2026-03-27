@@ -3217,6 +3217,9 @@ extern UniValue dumpwallet(const JSONRPCRequest& request);
 extern UniValue importwallet(const JSONRPCRequest& request);
 extern UniValue importprunedfunds(const JSONRPCRequest& request);
 extern UniValue removeprunedfunds(const JSONRPCRequest& request);
+extern UniValue createmnemonic(const JSONRPCRequest& request);
+extern UniValue importmnemonic(const JSONRPCRequest& request);
+extern UniValue exportmnemonic(const JSONRPCRequest& request);
 extern UniValue importmulti(const JSONRPCRequest& request);
 
 static const CRPCCommand commands[] =
@@ -3272,6 +3275,9 @@ static const CRPCCommand commands[] =
     { "wallet",             "walletpassphrasechange",   &walletpassphrasechange,   true,   {"oldpassphrase","newpassphrase"} },
     { "wallet",             "walletpassphrase",         &walletpassphrase,         true,   {"passphrase","timeout"} },
     { "wallet",             "removeprunedfunds",        &removeprunedfunds,        true,   {"txid"} },
+    { "wallet",             "createmnemonic",           &createmnemonic,           true,   {"passphrase", "words"} },
+    { "wallet",             "importmnemonic",           &importmnemonic,           true,   {"mnemonic", "passphrase", "rescan"} },
+    { "wallet",             "exportmnemonic",           &exportmnemonic,           true,   {} },
 };
 
 void RegisterWalletRPCCommands(CRPCTable &t)
