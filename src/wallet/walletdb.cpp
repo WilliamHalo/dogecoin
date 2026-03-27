@@ -951,6 +951,47 @@ bool CWalletDB::WriteHDChain(const CHDChain& chain)
     return Write(std::string("hdchain"), chain);
 }
 
+bool CWalletDB::EraseRecords(const std::string& strType)
+{
+    Dbc* pcursor = nullptr;
+    Dbt datKey, datValue;
+    
+    try {
+        int ret = pdb->cursor(nullptr, &pcursor, 0);
+        if (ret != 0)
+            return false;
+        
+        while (true) {
+            ret = pcursor->get(&datKey, &datValue, DB_NEXT);
+            if (ret == DB_NOTFOUND)
+                break;
+            if (ret != 0) {
+                pcursor->close();
+                return false;
+            }
+            
+            CDataStream ssKey(SER_DISK, CLIENT_VERSION);
+            ssKey.SetType(SER_DISK);
+            ssKey.write((char*)datKey.get_data(), datKey.get_size());
+            
+            std::string strKeyType;
+            ssKey >> strKeyType;
+            
+            if (strKeyType == strType) {
+                ret = pcursor->del(0);
+                nWalletDBUpdateCounter++;
+            }
+        }
+        
+        pcursor->close();
+        return true;
+    } catch (...) {
+        if (pcursor)
+            pcursor->close();
+        return false;
+    }
+}
+
 void CWalletDB::IncrementUpdateCounter()
 {
     nWalletDBUpdateCounter++;

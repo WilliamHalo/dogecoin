@@ -251,6 +251,8 @@ libdogecoin_wallet_a_SOURCES = \
   wallet/rpcdump.cpp \
   wallet/rpcutil.cpp \
   wallet/rpcwallet.cpp \
+  wallet/bip39.cpp \
+  wallet/rpcbip39.cpp \
   wallet/wallet.cpp \
   wallet/walletdb.cpp \
   policy/rbf.cpp \

@@ -10,6 +10,7 @@
 #include "primitives/transaction.h"
 #include "wallet/db.h"
 #include "key.h"
+#include "wallet/bip39.h"
 
 #include <list>
 #include <stdint.h>
@@ -41,15 +42,27 @@ enum DBErrors
     DB_NEED_REWRITE
 };
 
-/* simple HD chain data model */
+static const int BIP39_SEED_LEN = 64;
+
+static const uint32_t HD_PATH_LEGACY = 0;       // m/0'/3'/k' (old Dogecoin Core)
+static const uint32_t HD_PATH_BIP44 = 1;        // m/44'/3'/0'/0/k (standard BIP44)
+
 class CHDChain
 {
 public:
     uint32_t nExternalChainCounter;
-    CKeyID masterKeyID; //!< master key hash160
+    CKeyID masterKeyID;
 
-    static const int CURRENT_VERSION = 1;
+    static const int CURRENT_VERSION = 4;
+    static const int VERSION_WITH_BIP39 = 2;
+    static const int VERSION_WITH_MNEMONIC_STRING = 3;
+    static const int VERSION_WITH_PATH_TYPE = 4;
     int nVersion;
+
+    SecureVector vchMnemonic;
+    SecureVector vchCryptedMnemonic;
+    std::vector<unsigned char> vchEncryptionSalt;
+    uint32_t nPathType;  // HD_PATH_LEGACY or HD_PATH_BIP44
 
     CHDChain() { SetNull(); }
     ADD_SERIALIZE_METHODS;
@@ -59,6 +72,24 @@ public:
         READWRITE(this->nVersion);
         READWRITE(nExternalChainCounter);
         READWRITE(masterKeyID);
+        if (this->nVersion >= VERSION_WITH_BIP39) {
+            if (this->nVersion >= VERSION_WITH_MNEMONIC_STRING) {
+                READWRITE(vchMnemonic);
+                READWRITE(vchCryptedMnemonic);
+                READWRITE(vchEncryptionSalt);
+            } else {
+                std::vector<unsigned char> vchMnemonicSeed;
+                std::vector<unsigned char> vchCryptedMnemonicSeed;
+                READWRITE(vchMnemonicSeed);
+                READWRITE(vchCryptedMnemonicSeed);
+                vchMnemonic.assign(vchMnemonicSeed.begin(), vchMnemonicSeed.end());
+            }
+        }
+        if (this->nVersion >= VERSION_WITH_PATH_TYPE) {
+            READWRITE(nPathType);
+        } else {
+            nPathType = HD_PATH_LEGACY;
+        }
     }
 
     void SetNull()
@@ -66,6 +97,40 @@ public:
         nVersion = CHDChain::CURRENT_VERSION;
         nExternalChainCounter = 0;
         masterKeyID.SetNull();
+        vchMnemonic.clear();
+        vchCryptedMnemonic.clear();
+        vchEncryptionSalt.clear();
+        nPathType = HD_PATH_LEGACY;
+    }
+
+    bool HasMnemonic() const
+    {
+        return !vchMnemonic.empty() || !vchCryptedMnemonic.empty();
+    }
+
+    bool IsMnemonicCrypted() const
+    {
+        return !vchCryptedMnemonic.empty();
+    }
+    
+    void SetEncryptionSalt(const std::vector<unsigned char>& salt)
+    {
+        vchEncryptionSalt = salt;
+    }
+    
+    const std::vector<unsigned char>& GetEncryptionSalt() const
+    {
+        return vchEncryptionSalt;
+    }
+    
+    bool UseBIP44Path() const
+    {
+        return nPathType == HD_PATH_BIP44;
+    }
+    
+    void SetPathType(bool useBIP44)
+    {
+        nPathType = useBIP44 ? HD_PATH_BIP44 : HD_PATH_LEGACY;
     }
 };
 
@@ -175,6 +240,8 @@ public:
 
     //! write the hdchain model (external chain child index counter)
     bool WriteHDChain(const CHDChain& chain);
+    
+    bool EraseRecords(const std::string& strType);
 
     static void IncrementUpdateCounter();
     static unsigned int GetUpdateCounter();

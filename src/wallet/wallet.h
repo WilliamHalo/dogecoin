@@ -21,6 +21,7 @@
 #include "wallet/crypter.h"
 #include "wallet/walletdb.h"
 #include "wallet/rpcwallet.h"
+#include "wallet/bip39.h"
 
 #include <algorithm>
 #include <atomic>
@@ -971,6 +972,13 @@ public:
     
     /* Set the current HD master key (will reset the chain child index counters) */
     bool SetHDMasterKey(const CPubKey& key);
+
+    /* BIP39 mnemonic support */
+    bool ImportMnemonic(const std::string& strMnemonic, const SecureString& strPassphrase, bool fRescan = true);
+    std::string ExportMnemonic() const;
+    bool HasMnemonic() const;
+    bool EncryptMnemonic(const CKeyingMaterial& vMasterKey);
+    bool DecryptMnemonic(const CKeyingMaterial& vMasterKey);
 };
 
 /** A key allocated from the key pool. */

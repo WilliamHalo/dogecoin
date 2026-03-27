@@ -106,6 +106,15 @@ public:
     virtual bool RemoveWatchOnly(const CScript &dest);
     virtual bool HaveWatchOnly(const CScript &dest) const;
     virtual bool HaveWatchOnly() const;
+    
+    virtual void ClearKeys()
+    {
+        LOCK(cs_KeyStore);
+        mapKeys.clear();
+        mapWatchKeys.clear();
+        setWatchOnly.clear();
+        mapScripts.clear();
+    }
 };
 
 typedef std::vector<unsigned char, secure_allocator<unsigned char> > CKeyingMaterial;

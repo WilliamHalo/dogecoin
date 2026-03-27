@@ -574,7 +574,7 @@ BOOST_FIXTURE_TEST_CASE(derive_new_child_key_test, WalletTestingSetup)
     BOOST_CHECK(wallet->AddKeyPubKey(masterKey, masterPubKey));
     BOOST_CHECK(wallet->SetHDMasterKey(masterPubKey));
 
-    // Derive a new child key using at derivation path (m/0'/3'/0')
+    // Derive a new child key using BIP44 derivation path (m/44'/3'/0'/0/0)
     CKeyMetadata childMetadata(GetTime());
     CKey childKey;
     wallet->DeriveNewChildKey(childMetadata, childKey);
@@ -584,8 +584,8 @@ BOOST_FIXTURE_TEST_CASE(derive_new_child_key_test, WalletTestingSetup)
     BOOST_CHECK(childKey.IsValid());
     BOOST_CHECK(childPubKey.IsFullyValid());
 
-    // Verify that the metadata reflects the path "m/0'/3'/0'"
-    BOOST_CHECK_EQUAL(childMetadata.hdKeypath, "m/0'/3'/0'");
+    // Verify that the metadata reflects the BIP44 path "m/44'/3'/0'/0/0"
+    BOOST_CHECK_EQUAL(childMetadata.hdKeypath, "m/44'/3'/0'/0/0");
 
     // Verify the child public key matches the expected value
     std::string derivedPubKeyHex = HexStr(childPubKey.begin(), childPubKey.end());
