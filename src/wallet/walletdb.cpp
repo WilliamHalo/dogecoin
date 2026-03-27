@@ -951,6 +951,23 @@ bool CWalletDB::WriteHDChain(const CHDChain& chain)
     return Write(std::string("hdchain"), chain);
 }
 
+bool CWalletDB::WriteMnemonic(const CKeyID& mnMasterKeyID, const CMnemonicData& data)
+{
+    nWalletDBUpdateCounter++;
+    return Write(std::make_pair(std::string("mnemonic"), mnMasterKeyID), data);
+}
+
+bool CWalletDB::ReadMnemonic(CKeyID& mnMasterKeyID, CMnemonicData& data)
+{
+    return Read(std::make_pair(std::string("mnemonic"), mnMasterKeyID), data);
+}
+
+bool CWalletDB::EraseMnemonic()
+{
+    nWalletDBUpdateCounter++;
+    return Erase(std::string("mnemonic"));
+}
+
 void CWalletDB::IncrementUpdateCounter()
 {
     nWalletDBUpdateCounter++;

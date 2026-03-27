@@ -109,6 +109,10 @@ public:
     }
 };
 
+/** Helper functions for encryption/decryption - exposed for mnemonic support */
+bool EncryptSecret(const CKeyingMaterial& vMasterKey, const CKeyingMaterial &vchPlaintext, const uint256& nIV, std::vector<unsigned char> &vchCiphertext);
+bool DecryptSecret(const CKeyingMaterial& vMasterKey, const std::vector<unsigned char>& vchCiphertext, const uint256& nIV, CKeyingMaterial& vchPlaintext);
+
 /** Keystore which keeps the private keys encrypted.
  * It derives from the basic key store, which is used if no encryption is active.
  */
@@ -133,6 +137,10 @@ protected:
     bool EncryptKeys(CKeyingMaterial& vMasterKeyIn);
 
     bool Unlock(const CKeyingMaterial& vMasterKeyIn);
+    
+    //! Helper methods for encrypting/decrypting arbitrary data (used for mnemonic support)
+    bool EncryptData(const CKeyingMaterial& vchPlaintext, std::vector<unsigned char>& vchCiphertext) const;
+    bool DecryptData(const std::vector<unsigned char>& vchCiphertext, CKeyingMaterial& vchPlaintext) const;
 
 public:
     CCryptoKeyStore() : fUseCrypto(false), fDecryptionThoroughlyChecked(false)
@@ -157,6 +165,9 @@ public:
     }
 
     bool Lock();
+
+    //! Get master key (needed for mnemonic decryption)
+    const CKeyingMaterial& GetMasterKey() const { return vMasterKey; }
 
     virtual bool AddCryptedKey(const CPubKey &vchPubKey, const std::vector<unsigned char> &vchCryptedSecret);
     bool AddKeyPubKey(const CKey& key, const CPubKey &pubkey);

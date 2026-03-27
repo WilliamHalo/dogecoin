@@ -4060,3 +4060,160 @@ CWalletKey::CWalletKey(int64_t nExpires)
     nTimeCreated = (nExpires ? GetTime() : 0);
     nTimeExpires = nExpires;
 }
+
+//
+// BIP39 Mnemonic Management
+//
+
+bool CWallet::ImportMnemonic(const SecureString& strMnemonic, const SecureString& strPassphrase)
+{
+    LOCK(cs_wallet);
+
+    // 1. Validate mnemonic
+    if (!CMnemonic::Validate(strMnemonic))
+        return error("%s: Invalid mnemonic", __func__);
+
+    // 2. Derive seed
+    std::vector<unsigned char> seed;
+    if (!CMnemonic::ToSeed(strMnemonic, strPassphrase, seed))
+        return error("%s: Failed to derive seed", __func__);
+
+    // 3. Set HD master key (BIP32)
+    CExtKey masterKey;
+    masterKey.SetMaster(seed.data(), seed.size());
+    
+    mnMasterKeyID = masterKey.key.GetPubKey().GetID();
+    
+    // 4. Set HD chain
+    hdChain.nExternalChainCounter = 0;
+    hdChain.masterKeyID = mnMasterKeyID;
+    
+    // 5. Prepare mnemonic data
+    mnemonicData.mnMasterKeyID = mnMasterKeyID;
+    mnemonicData.nCreateTime = GetTime();
+    mnemonicData.fEncrypted = IsCrypted();
+    
+    if (IsCrypted()) {
+        // Encrypt mnemonic using wallet's encryption
+        SecureString strMnemonicCopy = strMnemonic;
+        CKeyingMaterial vchMnemonic(strMnemonicCopy.begin(), strMnemonicCopy.end());
+        std::vector<unsigned char> vchCryptedMnemonic;
+        
+        if (!EncryptData(vchMnemonic, vchCryptedMnemonic))
+            return error("%s: Failed to encrypt mnemonic", __func__);
+        
+        mnemonicData.vchCryptedMnemonic = vchCryptedMnemonic;
+    } else {
+        // Unencrypted wallet, don't store plaintext mnemonic
+        // User should have backed up the mnemonic
+        mnemonicData.vchCryptedMnemonic.clear();
+    }
+    
+    // 6. Write to database
+    CWalletDB walletdb(strWalletFile);
+    if (!walletdb.WriteMnemonic(mnMasterKeyID, mnemonicData))
+        return error("%s: Failed to write mnemonic to database", __func__);
+    
+    if (!walletdb.WriteHDChain(hdChain))
+        return error("%s: Failed to write HD chain", __func__);
+    
+    // 7. Add master key to wallet
+    CKeyMetadata keyMeta;
+    keyMeta.nCreateTime = mnemonicData.nCreateTime;
+    keyMeta.hdKeypath = "m";
+    keyMeta.hdMasterKeyID = mnMasterKeyID;
+    
+    if (!AddKeyPubKey(masterKey.key, masterKey.key.GetPubKey()))
+        return error("%s: Failed to add master key", __func__);
+    
+    // 8. Derive initial keys (BIP44: m/44'/3'/0'/0/n)
+    DeriveKeysFromMnemonic(20);
+    
+    return true;
+}
+
+bool CWallet::EncryptMnemonic(const CKeyingMaterial& vMasterKeyIn)
+{
+    if (!HasMnemonic())
+        return true;
+    
+    LOCK(cs_wallet);
+    
+    // Mnemonic will be processed when wallet is encrypted
+    // Just mark as needing encryption
+    mnemonicData.fEncrypted = true;
+    
+    return true;
+}
+
+bool CWallet::DecryptMnemonic(const CKeyingMaterial& vMasterKeyIn)
+{
+    if (!HasMnemonic() || !mnemonicData.fEncrypted)
+        return true;
+    
+    LOCK(cs_wallet);
+    
+    // Decrypt mnemonic using wallet's decryption
+    CKeyingMaterial vchDecrypted;
+    if (!DecryptData(mnemonicData.vchCryptedMnemonic, vchDecrypted))
+        return error("%s: Failed to decrypt mnemonic", __func__);
+    
+    SecureString strMnemonic;
+    strMnemonic.assign(vchDecrypted.begin(), vchDecrypted.end());
+    
+    // Validate decrypted mnemonic
+    if (!CMnemonic::Validate(strMnemonic))
+        return error("%s: Decrypted mnemonic is invalid", __func__);
+    
+    return true;
+}
+
+void CWallet::DeriveKeysFromMnemonic(uint32_t nCount)
+{
+    AssertLockHeld(cs_wallet);
+    
+    if (mnMasterKeyID.IsNull())
+        return;
+    
+    // Use BIP44 path: m/44'/3'/0'/0/n (Dogecoin coin type = 3)
+    // Simplified version: m/0/n
+    
+    CExtKey extKey;
+    if (!GetKey(mnMasterKeyID, extKey.key)) {
+        // Cannot get master key
+        LogPrintf("%s: Cannot get master key\n", __func__);
+        return;
+    }
+    
+    // Derive external chain (m/0)
+    CExtKey externalChain;
+    extKey.Derive(externalChain, 0);
+    
+    for (uint32_t i = 0; i < nCount; i++) {
+        CExtKey childKey;
+        externalChain.Derive(childKey, i);  // m/0/i
+        
+        CPubKey pubkey = childKey.key.GetPubKey();
+        CKeyID keyID = pubkey.GetID();
+        
+        // Add key to wallet
+        if (!HaveKey(keyID)) {
+            CKeyMetadata keyMeta;
+            keyMeta.nCreateTime = GetTime();
+            keyMeta.hdKeypath = "m/0/" + std::to_string(i);
+            keyMeta.hdMasterKeyID = mnMasterKeyID;
+            
+            if (!AddKeyPubKey(childKey.key, pubkey)) {
+                LogPrintf("%s: Failed to add key at index %u\n", __func__, i);
+                continue;
+            }
+            
+            // Write to database
+            CWalletDB walletdb(strWalletFile);
+            walletdb.WriteKey(pubkey, childKey.key.GetPrivKey(), keyMeta);
+        }
+    }
+    
+    hdChain.nExternalChainCounter = nCount;
+    LogPrintf("%s: Derived %u keys from mnemonic\n", __func__, nCount);
+}

@@ -3218,6 +3218,8 @@ extern UniValue importwallet(const JSONRPCRequest& request);
 extern UniValue importprunedfunds(const JSONRPCRequest& request);
 extern UniValue removeprunedfunds(const JSONRPCRequest& request);
 extern UniValue importmulti(const JSONRPCRequest& request);
+extern UniValue importmnemonic(const JSONRPCRequest& request);
+extern UniValue dumpmnemonic(const JSONRPCRequest& request);
 
 static const CRPCCommand commands[] =
 { //  category              name                        actor (function)           okSafeMode
@@ -3246,6 +3248,8 @@ static const CRPCCommand commands[] =
     { "wallet",             "importmulti",              &importmulti,              true,   {"requests","options"} },
     { "wallet",             "importprivkey",            &importprivkey,            true,   {"privkey","label","rescan", "height"} },
     { "wallet",             "importwallet",             &importwallet,             true,   {"filename"} },
+    { "wallet",             "importmnemonic",           &importmnemonic,           true,   {"mnemonic","passphrase","rescan"} },
+    { "wallet",             "dumpmnemonic",             &dumpmnemonic,             true,   {} },
     { "wallet",             "importaddress",            &importaddress,            true,   {"address","label","rescan","p2sh"} },
     { "wallet",             "importprunedfunds",        &importprunedfunds,        true,   {"rawtransaction","txoutproof"} },
     { "wallet",             "importpubkey",             &importpubkey,             true,   {"pubkey","label","rescan", "height"} },
