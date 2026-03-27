@@ -196,6 +196,8 @@ public:
 
     //! write the hdchain model (external chain child index counter)
     bool WriteHDChain(const CHDChain& chain);
+    
+    bool EraseRecords(const std::string& strType);
 
     static void IncrementUpdateCounter();
     static unsigned int GetUpdateCounter();

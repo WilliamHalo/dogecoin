@@ -193,6 +193,15 @@ public:
      * Note: Called without locks held.
      */
     boost::signals2::signal<void (CCryptoKeyStore* wallet)> NotifyStatusChanged;
+    
+    void ClearKeys() override
+    {
+        LOCK(cs_KeyStore);
+        CBasicKeyStore::ClearKeys();
+        mapCryptedKeys.clear();
+        vMasterKey.clear();
+        fDecryptionThoroughlyChecked = false;
+    }
 };
 
 #endif // BITCOIN_WALLET_CRYPTER_H

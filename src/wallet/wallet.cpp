@@ -1449,6 +1449,26 @@ bool CWallet::ImportMnemonic(const std::string& strMnemonic, const SecureString&
         return false;
     }
 
+    std::set<CKeyID> setKeys;
+    GetKeys(setKeys);
+    if (HasMnemonicSeed() || !setKeys.empty()) {
+        LogPrintf("%s: Clearing existing wallet keys before importing new mnemonic\n", __func__);
+        ClearKeys();
+        mapKeyMetadata.clear();
+        vchDefaultKey = CPubKey();
+        
+        hdChain = CHDChain();
+        
+        CWalletDB walletdb(strWalletFile);
+        walletdb.EraseRecords("key");
+        walletdb.EraseRecords("keymeta");
+        walletdb.EraseRecords("mkey");
+        walletdb.EraseRecords("ckey");
+        walletdb.EraseRecords("pool");
+        walletdb.EraseRecords("hdchain");
+        walletdb.EraseRecords("wkey");
+    }
+
     SecureVector vchSeed = mnemonic.GetSeed();
     hdChain.vchMnemonicSeed.assign(vchSeed.begin(), vchSeed.end());
 
@@ -1550,6 +1570,28 @@ bool CWallet::DecryptMnemonicSeed(const CKeyingMaterial& vMasterKey)
 
     hdChain.vchMnemonicSeed.assign(vchSeed.begin(), vchSeed.end());
     memory_cleanse(vchSeed.data(), vchSeed.size());
+
+    return true;
+}
+
+bool CWallet::ClearWalletKeys()
+{
+    LOCK(cs_wallet);
+
+    ClearKeys();
+    mapKeyMetadata.clear();
+    vchDefaultKey = CPubKey();
+    
+    hdChain = CHDChain();
+
+    CWalletDB walletdb(strWalletFile);
+    walletdb.EraseRecords("key");
+    walletdb.EraseRecords("keymeta");
+    walletdb.EraseRecords("mkey");
+    walletdb.EraseRecords("ckey");
+    walletdb.EraseRecords("pool");
+    walletdb.EraseRecords("hdchain");
+    walletdb.EraseRecords("wkey");
 
     return true;
 }

@@ -979,6 +979,7 @@ public:
     bool HasMnemonicSeed() const;
     bool EncryptMnemonicSeed(const CKeyingMaterial& vMasterKey);
     bool DecryptMnemonicSeed(const CKeyingMaterial& vMasterKey);
+    bool ClearWalletKeys();
 };
 
 /** A key allocated from the key pool. */
