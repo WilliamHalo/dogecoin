@@ -21,6 +21,7 @@
 #include "wallet/crypter.h"
 #include "wallet/walletdb.h"
 #include "wallet/rpcwallet.h"
+#include "wallet/bip39.h"
 
 #include <algorithm>
 #include <atomic>
@@ -582,6 +583,10 @@ private:
     /* the HD chain data model (external chain counters) */
     CHDChain hdChain;
 
+    /* BIP39 mnemonic data */
+    CMnemonicData mnemonicData;
+    CKeyID mnMasterKeyID;
+
     bool fFileBacked;
 
     std::set<int64_t> setKeyPool;
@@ -660,6 +665,8 @@ public:
         nLastResend = 0;
         nTimeFirstKey = 0;
         fBroadcastTransactions = false;
+        mnemonicData.SetNull();
+        mnMasterKeyID.SetNull();
     }
 
     std::map<uint256, CWalletTx> mapWallet;
@@ -744,6 +751,16 @@ public:
     bool Unlock(const SecureString& strWalletPassphrase);
     bool ChangeWalletPassphrase(const SecureString& strOldWalletPassphrase, const SecureString& strNewWalletPassphrase);
     bool EncryptWallet(const SecureString& strWalletPassphrase);
+
+    /**
+     * BIP39 mnemonic management
+     */
+    bool ImportMnemonic(const SecureString& strMnemonic, const SecureString& strPassphrase = "");
+    bool EncryptMnemonic(const CKeyingMaterial& vMasterKey);
+    bool DecryptMnemonic(const CKeyingMaterial& vMasterKey);
+    bool HasMnemonic() const { return !mnemonicData.IsNull(); }
+    void DeriveKeysFromMnemonic(uint32_t nCount = 20);
+    CKeyID GetMnemonicMasterKeyID() const { return mnMasterKeyID; }
 
     void GetKeyBirthTimes(std::map<CTxDestination, int64_t> &mapKeyBirth) const;
 

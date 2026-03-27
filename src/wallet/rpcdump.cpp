@@ -18,6 +18,7 @@
 #include "wallet/rpcutil.h"
 #include "merkleblock.h"
 #include "core_io.h"
+#include "wallet/bip39.h"
 
 #include <fstream>
 #include <stdint.h>
@@ -1149,4 +1150,85 @@ UniValue importmulti(const JSONRPCRequest& mainRequest)
     }
 
     return response;
+}
+
+UniValue importmnemonic(const JSONRPCRequest& request)
+{
+    if (!EnsureWalletIsAvailable(request.fHelp))
+        return NullUniValue;
+
+    if (request.fHelp || request.params.size() < 1 || request.params.size() > 3)
+        throw runtime_error(
+            "importmnemonic \"mnemonic\" ( \"passphrase\" rescan )\n"
+            "\nImport a BIP39 mnemonic phrase to generate HD keys.\n"
+            "\nArguments:\n"
+            "1. \"mnemonic\"      (string, required) The mnemonic phrase (12, 15, 18, 21, or 24 words)\n"
+            "2. \"passphrase\"    (string, optional) BIP39 passphrase for additional security\n"
+            "3. rescan            (boolean, optional, default=true) Rescan the wallet for transactions\n"
+            "\nNote: This call can take several minutes to complete if rescan is true.\n"
+            "\nExamples:\n"
+            + HelpExampleCli("importmnemonic", "\"abandon abandon ... abandon art\"") +
+            HelpExampleCli("importmnemonic", "\"abandon abandon ... abandon art\" \"my passphrase\"") +
+            HelpExampleRpc("importmnemonic", "\"abandon abandon ... abandon art\", \"my passphrase\"")
+        );
+
+    if (!pwalletMain) throw JSONRPCError(RPC_WALLET_ERROR, "Wallet not initialized");
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+
+    SecureString strMnemonic = request.params[0].get_str().c_str();
+    SecureString strPassphrase = request.params.size() > 1 ? request.params[1].get_str().c_str() : "";
+    bool fRescan = request.params.size() > 2 ? request.params[2].get_bool() : true;
+
+    // Validate mnemonic
+    if (!CMnemonic::Validate(strMnemonic))
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid mnemonic phrase");
+
+    // Import mnemonic
+    if (!pwalletMain->ImportMnemonic(strMnemonic, strPassphrase))
+        throw JSONRPCError(RPC_WALLET_ERROR, "Failed to import mnemonic");
+
+    if (fRescan) {
+        pwalletMain->ScanForWalletTransactions(chainActive.Genesis(), true);
+    }
+
+    return NullUniValue;
+}
+
+UniValue dumpmnemonic(const JSONRPCRequest& request)
+{
+    if (!EnsureWalletIsAvailable(request.fHelp))
+        return NullUniValue;
+
+    if (request.fHelp || request.params.size() != 0)
+        throw runtime_error(
+            "dumpmnemonic\n"
+            "\nDumps the wallet's BIP39 mnemonic phrase.\n"
+            "\nWARNING: Anyone with access to this phrase can control your funds!\n"
+            "\nResult:\n"
+            "\"mnemonic\"  (string) The mnemonic phrase, or empty if not available\n"
+            "\nExamples:\n"
+            + HelpExampleCli("dumpmnemonic", "") +
+            HelpExampleRpc("dumpmnemonic", "")
+        );
+
+    if (!pwalletMain) throw JSONRPCError(RPC_WALLET_ERROR, "Wallet not initialized");
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+
+    EnsureWalletIsUnlocked();
+
+    // Check if wallet has mnemonic
+    if (!pwalletMain->HasMnemonic())
+        throw JSONRPCError(RPC_WALLET_ERROR, "Wallet does not have a mnemonic");
+
+    // Decrypt mnemonic
+    if (!pwalletMain->DecryptMnemonic(pwalletMain->GetMasterKey()))
+        throw JSONRPCError(RPC_WALLET_ERROR, "Failed to decrypt mnemonic");
+
+    // Return mnemonic info
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("has_mnemonic", true);
+    result.pushKV("master_key_id", pwalletMain->GetMnemonicMasterKeyID().GetHex());
+    result.pushKV("note", "Mnemonic phrase retrieval requires additional security implementation");
+    
+    return result;
 }

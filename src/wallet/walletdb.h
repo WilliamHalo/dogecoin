@@ -10,6 +10,7 @@
 #include "primitives/transaction.h"
 #include "wallet/db.h"
 #include "key.h"
+#include "wallet/bip39.h"
 
 #include <list>
 #include <stdint.h>
@@ -175,6 +176,11 @@ public:
 
     //! write the hdchain model (external chain child index counter)
     bool WriteHDChain(const CHDChain& chain);
+
+    //! BIP39 mnemonic support
+    bool WriteMnemonic(const CKeyID& mnMasterKeyID, const CMnemonicData& data);
+    bool ReadMnemonic(CKeyID& mnMasterKeyID, CMnemonicData& data);
+    bool EraseMnemonic();
 
     static void IncrementUpdateCounter();
     static unsigned int GetUpdateCounter();

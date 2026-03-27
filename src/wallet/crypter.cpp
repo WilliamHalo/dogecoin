@@ -110,7 +110,7 @@ bool CCrypter::Decrypt(const std::vector<unsigned char>& vchCiphertext, CKeyingM
 }
 
 
-static bool EncryptSecret(const CKeyingMaterial& vMasterKey, const CKeyingMaterial &vchPlaintext, const uint256& nIV, std::vector<unsigned char> &vchCiphertext)
+bool EncryptSecret(const CKeyingMaterial& vMasterKey, const CKeyingMaterial &vchPlaintext, const uint256& nIV, std::vector<unsigned char> &vchCiphertext)
 {
     CCrypter cKeyCrypter;
     std::vector<unsigned char> chIV(WALLET_CRYPTO_IV_SIZE);
@@ -120,7 +120,7 @@ static bool EncryptSecret(const CKeyingMaterial& vMasterKey, const CKeyingMateri
     return cKeyCrypter.Encrypt(*((const CKeyingMaterial*)&vchPlaintext), vchCiphertext);
 }
 
-static bool DecryptSecret(const CKeyingMaterial& vMasterKey, const std::vector<unsigned char>& vchCiphertext, const uint256& nIV, CKeyingMaterial& vchPlaintext)
+bool DecryptSecret(const CKeyingMaterial& vMasterKey, const std::vector<unsigned char>& vchCiphertext, const uint256& nIV, CKeyingMaterial& vchPlaintext)
 {
     CCrypter cKeyCrypter;
     std::vector<unsigned char> chIV(WALLET_CRYPTO_IV_SIZE);
@@ -299,4 +299,24 @@ bool CCryptoKeyStore::EncryptKeys(CKeyingMaterial& vMasterKeyIn)
         mapKeys.clear();
     }
     return true;
+}
+
+bool CCryptoKeyStore::EncryptData(const CKeyingMaterial& vchPlaintext, std::vector<unsigned char>& vchCiphertext) const
+{
+    if (!IsCrypted())
+        return false;
+    
+    // Use a deterministic IV based on master key hash
+    uint256 iv = Hash(vMasterKey.begin(), vMasterKey.end());
+    return ::EncryptSecret(vMasterKey, vchPlaintext, iv, vchCiphertext);
+}
+
+bool CCryptoKeyStore::DecryptData(const std::vector<unsigned char>& vchCiphertext, CKeyingMaterial& vchPlaintext) const
+{
+    if (!IsCrypted())
+        return false;
+    
+    // Use the same deterministic IV
+    uint256 iv = Hash(vMasterKey.begin(), vMasterKey.end());
+    return ::DecryptSecret(vMasterKey, vchCiphertext, iv, vchPlaintext);
 }
