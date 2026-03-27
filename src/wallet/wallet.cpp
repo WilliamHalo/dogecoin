@@ -136,12 +136,15 @@ CPubKey CWallet::GenerateNewKey()
 
 void CWallet::DeriveNewChildKey(CKeyMetadata& metadata, CKey& secret)
 {
-    // for now we use a fixed keypath scheme of m/0'/3'/k
-    CKey key;                      //master key seed (256bit)
-    CExtKey masterKey;             //hd master key
-    CExtKey accountKey;            //key at m/0'
-    CExtKey externalChainChildKey; //key at m/0'/3'
-    CExtKey childKey;              //key at m/0'/3'/<n>'
+    // BIP44 standard keypath: m/44'/3'/0'/0/k
+    // m / purpose' / coin_type' / account' / change / address_index
+    CKey key;                      // master key seed (256bit)
+    CExtKey masterKey;             // hd master key
+    CExtKey purposeKey;            // key at m/44'
+    CExtKey coinTypeKey;           // key at m/44'/3'
+    CExtKey accountKey;            // key at m/44'/3'/0'
+    CExtKey externalChainChildKey; // key at m/44'/3'/0'/0
+    CExtKey childKey;              // key at m/44'/3'/0'/0/<n>
 
     // try to get the master key
     if (!GetKey(hdChain.masterKeyID, key))
@@ -149,20 +152,23 @@ void CWallet::DeriveNewChildKey(CKeyMetadata& metadata, CKey& secret)
 
     masterKey.SetMaster(key.begin(), key.size());
 
-    // derive m/0'
-    // use hardened derivation (child keys >= 0x80000000 are hardened after bip32)
-    masterKey.Derive(accountKey, BIP32_HARDENED_KEY_LIMIT);
+    // derive m/44' (purpose, hardened)
+    masterKey.Derive(purposeKey, BIP44_PURPOSE | BIP32_HARDENED_KEY_LIMIT);
 
-    // derive m/0'/3'
-    accountKey.Derive(externalChainChildKey, BIP44_COIN_TYPE | BIP32_HARDENED_KEY_LIMIT);
+    // derive m/44'/3' (coin_type, hardened)
+    purposeKey.Derive(coinTypeKey, BIP44_COIN_TYPE | BIP32_HARDENED_KEY_LIMIT);
+
+    // derive m/44'/3'/0' (account, hardened)
+    coinTypeKey.Derive(accountKey, BIP44_ACCOUNT | BIP32_HARDENED_KEY_LIMIT);
+
+    // derive m/44'/3'/0'/0 (external chain, non-hardened)
+    accountKey.Derive(externalChainChildKey, BIP44_EXTERNAL_CHAIN);
 
     // derive child key at next index, skip keys already known to the wallet
     do {
-        // always derive hardened keys
-        // childIndex | BIP32_HARDENED_KEY_LIMIT = derive childIndex in hardened child-index-range
-        // example: 1 | BIP32_HARDENED_KEY_LIMIT == 0x80000001 == 2147483649
-        externalChainChildKey.Derive(childKey, hdChain.nExternalChainCounter | BIP32_HARDENED_KEY_LIMIT);
-        metadata.hdKeypath = "m/0'/3'/" + std::to_string(hdChain.nExternalChainCounter) + "'";
+        // derive non-hardened child keys for address_index
+        externalChainChildKey.Derive(childKey, hdChain.nExternalChainCounter);
+        metadata.hdKeypath = "m/44'/3'/0'/0/" + std::to_string(hdChain.nExternalChainCounter);
         metadata.hdMasterKeyID = hdChain.masterKeyID;
         // increment childkey index
         hdChain.nExternalChainCounter++;
