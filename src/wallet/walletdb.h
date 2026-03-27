@@ -10,6 +10,7 @@
 #include "primitives/transaction.h"
 #include "wallet/db.h"
 #include "key.h"
+#include "wallet/bip39.h"
 
 #include <list>
 #include <stdint.h>
@@ -43,7 +44,8 @@ enum DBErrors
 
 static const int BIP39_SEED_LEN = 64;
 
-typedef std::vector<unsigned char, secure_allocator<unsigned char> > SecureVector;
+static const uint32_t HD_PATH_LEGACY = 0;       // m/0'/3'/k' (old Dogecoin Core)
+static const uint32_t HD_PATH_BIP44 = 1;        // m/44'/3'/0'/0/k (standard BIP44)
 
 class CHDChain
 {
@@ -51,15 +53,16 @@ public:
     uint32_t nExternalChainCounter;
     CKeyID masterKeyID;
 
-    static const int CURRENT_VERSION = 3;
+    static const int CURRENT_VERSION = 4;
     static const int VERSION_WITH_BIP39 = 2;
     static const int VERSION_WITH_MNEMONIC_STRING = 3;
+    static const int VERSION_WITH_PATH_TYPE = 4;
     int nVersion;
 
     SecureVector vchMnemonic;
     SecureVector vchCryptedMnemonic;
     std::vector<unsigned char> vchEncryptionSalt;
-    SecureString strPassphraseHash;
+    uint32_t nPathType;  // HD_PATH_LEGACY or HD_PATH_BIP44
 
     CHDChain() { SetNull(); }
     ADD_SERIALIZE_METHODS;
@@ -82,6 +85,11 @@ public:
                 vchMnemonic.assign(vchMnemonicSeed.begin(), vchMnemonicSeed.end());
             }
         }
+        if (this->nVersion >= VERSION_WITH_PATH_TYPE) {
+            READWRITE(nPathType);
+        } else {
+            nPathType = HD_PATH_LEGACY;
+        }
     }
 
     void SetNull()
@@ -92,7 +100,7 @@ public:
         vchMnemonic.clear();
         vchCryptedMnemonic.clear();
         vchEncryptionSalt.clear();
-        strPassphraseHash.clear();
+        nPathType = HD_PATH_LEGACY;
     }
 
     bool HasMnemonic() const
@@ -113,6 +121,16 @@ public:
     const std::vector<unsigned char>& GetEncryptionSalt() const
     {
         return vchEncryptionSalt;
+    }
+    
+    bool UseBIP44Path() const
+    {
+        return nPathType == HD_PATH_BIP44;
+    }
+    
+    void SetPathType(bool useBIP44)
+    {
+        nPathType = useBIP44 ? HD_PATH_BIP44 : HD_PATH_LEGACY;
     }
 };
 

@@ -201,6 +201,9 @@ std::string CBIP39Mnemonic::GetWord(int nIndex)
 
 void BIP39GenerateSeed(const std::string& strMnemonic, const SecureString& strPassphrase, SecureVector& vchSeed)
 {
+    // BIP39: Seed = PBKDF2-HMAC-SHA512(password=mnemonic, salt="mnemonic"+passphrase, iterations=2048, dkLen=64)
+    // Note: In PBKDF2, the password is used as the HMAC key, and salt is the data
+    
     std::string strSalt = std::string(BIP39_SEED_KEY) + std::string(strPassphrase.begin(), strPassphrase.end());
 
     vchSeed.resize(64);
@@ -212,16 +215,21 @@ void BIP39GenerateSeed(const std::string& strMnemonic, const SecureString& strPa
 
     unsigned char U[64];
     unsigned char T[64];
-
-    CHMAC_SHA512 hmac(saltData, saltLen);
-    hmac.Write(mnemonicData, mnemonicLen);
-    hmac.Write(reinterpret_cast<const unsigned char*>("\x01"), 1);
+    
+    // U1 = HMAC-SHA512(password=mnemonic, data=salt || INT_32_BE(1))
+    // Note: mnemonic is the HMAC KEY, salt is the DATA (this is correct per PBKDF2 spec)
+    CHMAC_SHA512 hmac(mnemonicData, mnemonicLen);
+    hmac.Write(saltData, saltLen);
+    // Block index: 4 bytes big-endian, value 1
+    unsigned char blockIndex[4] = {0x00, 0x00, 0x00, 0x01};
+    hmac.Write(blockIndex, 4);
     hmac.Finalize(U);
     memcpy(T, U, 64);
     memcpy(vchSeed.data(), T, 64);
 
+    // U2..U2048: HMAC-SHA512(password=mnemonic, data=U_prev)
     for (int i = 1; i < BIP39_PBKDF2_ITERATIONS; i++) {
-        CHMAC_SHA512 hmac2(saltData, saltLen);
+        CHMAC_SHA512 hmac2(mnemonicData, mnemonicLen);
         hmac2.Write(U, 64);
         hmac2.Finalize(U);
         for (int j = 0; j < 64; j++) {

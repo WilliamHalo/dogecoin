@@ -201,6 +201,7 @@ public:
         mapCryptedKeys.clear();
         vMasterKey.clear();
         fDecryptionThoroughlyChecked = false;
+        fUseCrypto = false;
     }
 };
 
