@@ -4,6 +4,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "base58.h"
+#include "bip39.h"
 #include "chain.h"
 #include "fs.h"
 #include "rpc/server.h"
@@ -1149,4 +1150,64 @@ UniValue importmulti(const JSONRPCRequest& mainRequest)
     }
 
     return response;
+}
+
+UniValue importmnemonic(const JSONRPCRequest& request)
+{
+    if (!EnsureWalletIsAvailable(request.fHelp))
+        return NullUniValue;
+
+    if (request.fHelp || request.params.size() < 1 || request.params.size() > 3)
+        throw runtime_error(
+            "importmnemonic \"mnemonic\" ( \"passphrase\" rescan )\n"
+            "\nImport a BIP39 mnemonic phrase and generate deterministic keys.\n"
+            "\nArguments:\n"
+            "1. \"mnemonic\"       (string, required) The BIP39 mnemonic phrase\n"
+            "2. \"passphrase\"     (string, optional, default=\"\") The BIP39 passphrase (optional)\n"
+            "3. rescan            (boolean, optional, default=true) Rescan the wallet for transactions\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"success\": true|false,\n"
+            "  \"seedid\": \"hex\",        (string) The seed ID (hash160 of the seed)\n"
+            "}\n"
+            "\nExamples:\n"
+            + HelpExampleCli("importmnemonic", "\"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about\"") +
+            "\nAs a JSON-RPC call\n"
+            + HelpExampleRpc("importmnemonic", "\"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about\", \"\", true")
+        );
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+
+    EnsureWalletIsUnlocked();
+
+    std::string strMnemonic = request.params[0].get_str();
+    std::string strPassphrase = "";
+    if (request.params.size() > 1)
+        strPassphrase = request.params[1].get_str();
+
+    bool fRescan = true;
+    if (request.params.size() > 2)
+        fRescan = request.params[2].get_bool();
+
+    if (fRescan && fPruneMode)
+        throw JSONRPCError(RPC_WALLET_ERROR, "Rescan is disabled in pruned mode");
+
+    if (!pwalletMain->IsHDEnabled())
+        throw JSONRPCError(RPC_WALLET_ERROR, "HD wallet not enabled");
+
+    std::vector<unsigned char> seed;
+    if (!CBIP39::MnemonicToSeed(strMnemonic, strPassphrase, seed))
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid mnemonic phrase");
+
+    pwalletMain->SetBIP39Seed(seed, true);
+
+    if (fRescan) {
+        attemptRescanFromHeight(1);
+    }
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("success", true);
+    result.pushKV("seedid", pwalletMain->GetHDChain().masterKeyID.GetHex());
+
+    return result;
 }

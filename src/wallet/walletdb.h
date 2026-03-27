@@ -46,10 +46,13 @@ class CHDChain
 {
 public:
     uint32_t nExternalChainCounter;
-    CKeyID masterKeyID; //!< master key hash160
+    CKeyID masterKeyID; 
 
-    static const int CURRENT_VERSION = 1;
+    static const int CURRENT_VERSION = 3;
     int nVersion;
+
+    std::vector<unsigned char> vchCryptedBIP39Seed;
+    bool fBIP39SeedFromMnemonic;
 
     CHDChain() { SetNull(); }
     ADD_SERIALIZE_METHODS;
@@ -59,6 +62,12 @@ public:
         READWRITE(this->nVersion);
         READWRITE(nExternalChainCounter);
         READWRITE(masterKeyID);
+        if (nVersion >= 2) {
+            READWRITE(vchCryptedBIP39Seed);
+        }
+        if (nVersion >= 3) {
+            READWRITE(fBIP39SeedFromMnemonic);
+        }
     }
 
     void SetNull()
@@ -66,6 +75,12 @@ public:
         nVersion = CHDChain::CURRENT_VERSION;
         nExternalChainCounter = 0;
         masterKeyID.SetNull();
+        vchCryptedBIP39Seed.clear();
+        fBIP39SeedFromMnemonic = false;
+    }
+
+    bool HasBIP39Seed() const {
+        return !vchCryptedBIP39Seed.empty();
     }
 };
 

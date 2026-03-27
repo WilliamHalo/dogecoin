@@ -117,6 +117,7 @@ class CCryptoKeyStore : public CBasicKeyStore
 private:
     CryptedKeyMap mapCryptedKeys;
 
+protected:
     CKeyingMaterial vMasterKey;
 
     //! if fUseCrypto is true, mapKeys must be empty
