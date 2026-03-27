@@ -6,6 +6,7 @@
 
 #include "wallet/wallet.h"
 
+#include "bip39.h"
 #include "base58.h"
 #include "checkpoints.h"
 #include "chain.h"
@@ -138,9 +139,19 @@ void CWallet::DeriveNewChildKey(CKeyMetadata& metadata, CKey& secret)
     CExtKey externalChainChildKey; //key at m/0'/3'
     CExtKey childKey;              //key at m/0'/3'/<n>'
 
-    // try to get the master key
-    if (!GetKey(hdChain.masterKeyID, key))
-        throw std::runtime_error(std::string(__func__) + ": Master key not found");
+    // try to get the master key from BIP39 seed first if available
+    if (!vchBIP39Seed.empty()) {
+        key.Set(vchBIP39Seed.begin(), vchBIP39Seed.end(), true);
+    } else if (hdChain.HasBIP39Seed() && !IsLocked()) {
+        CKeyingMaterial vchSecret;
+        if (!DecryptBIP39Seed(vchSecret)) {
+            throw std::runtime_error(std::string(__func__) + ": Could not decrypt BIP39 seed");
+        }
+        key.Set(vchSecret.begin(), vchSecret.end(), true);
+    } else {
+        if (!GetKey(hdChain.masterKeyID, key))
+            throw std::runtime_error(std::string(__func__) + ": Master key not found");
+    }
 
     masterKey.SetMaster(key.begin(), key.size());
 
@@ -675,6 +686,26 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
             CPubKey masterPubKey = GenerateNewHDMasterKey();
             if (!SetHDMasterKey(masterPubKey))
                 return false;
+        }
+
+        if (!vchBIP39Seed.empty()) {
+            CKeyingMaterial vchSecret(vchBIP39Seed.begin(), vchBIP39Seed.end());
+            std::vector<unsigned char> vchCryptedSecret;
+
+            CCrypter crypter;
+            std::vector<unsigned char> chIV(WALLET_CRYPTO_IV_SIZE);
+            memcpy(&chIV[0], vMasterKey.data() + WALLET_CRYPTO_KEY_SIZE, WALLET_CRYPTO_IV_SIZE);
+            if (!crypter.SetKey(vMasterKey, chIV)) {
+                return false;
+            }
+            if (!crypter.Encrypt(vchSecret, vchCryptedSecret)) {
+                return false;
+            }
+
+            hdChain.vchCryptedBIP39Seed = vchCryptedSecret;
+            hdChain.fBIP39SeedFromMnemonic = true;
+            SetHDChain(hdChain, false);
+            vchBIP39Seed.clear();
         }
 
         NewKeyPool();
@@ -1416,6 +1447,77 @@ bool CWallet::SetHDChain(const CHDChain& chain, bool memonly)
 bool CWallet::IsHDEnabled()
 {
     return !hdChain.masterKeyID.IsNull();
+}
+
+bool CWallet::SetBIP39Seed(const std::vector<unsigned char>& seed, bool fBIP39Seed)
+{
+    LOCK(cs_wallet);
+
+    SetMinVersion(FEATURE_HD);
+
+    if (!IsCrypted()) {
+        vchBIP39Seed = seed;
+    } else if (!IsLocked()) {
+        CKeyingMaterial vchSecret(seed.begin(), seed.end());
+        std::vector<unsigned char> vchCryptedSecret;
+
+        CCrypter crypter;
+        std::vector<unsigned char> chIV(WALLET_CRYPTO_IV_SIZE);
+        memcpy(&chIV[0], vMasterKey.data() + WALLET_CRYPTO_KEY_SIZE, WALLET_CRYPTO_IV_SIZE);
+        if (!crypter.SetKey(vMasterKey, chIV)) {
+            return false;
+        }
+        if (!crypter.Encrypt(vchSecret, vchCryptedSecret))
+            return false;
+
+        hdChain.vchCryptedBIP39Seed = vchCryptedSecret;
+    } else {
+        return false;
+    }
+
+    hdChain.fBIP39SeedFromMnemonic = fBIP39Seed;
+    SetHDChain(hdChain, false);
+
+    CKey masterKey;
+    masterKey.Set(seed.begin(), seed.end(), true);
+    CPubKey masterPubKey = masterKey.GetPubKey();
+    
+    if (masterPubKey.IsValid()) {
+        CKeyID keyID = masterPubKey.GetID();
+        if (keyID != hdChain.masterKeyID) {
+            CHDChain newHdChain = hdChain;
+            newHdChain.masterKeyID = keyID;
+            SetHDChain(newHdChain, false);
+        }
+    }
+
+    return true;
+}
+
+bool CWallet::DecryptBIP39Seed(CKeyingMaterial& vchSecret)
+{
+    LOCK(cs_KeyStore);
+
+    if (!IsCrypted() || IsLocked()) {
+        return false;
+    }
+
+    if (hdChain.vchCryptedBIP39Seed.empty()) {
+        return false;
+    }
+
+    CCrypter crypter;
+    std::vector<unsigned char> chIV(WALLET_CRYPTO_IV_SIZE);
+    memcpy(&chIV[0], vMasterKey.data() + WALLET_CRYPTO_KEY_SIZE, WALLET_CRYPTO_IV_SIZE);
+    if (!crypter.SetKey(vMasterKey, chIV)) {
+        return false;
+    }
+
+    if (!crypter.Decrypt(hdChain.vchCryptedBIP39Seed, vchSecret)) {
+        return false;
+    }
+
+    return true;
 }
 
 int64_t CWalletTx::GetTxTime() const

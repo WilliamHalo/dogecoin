@@ -582,6 +582,8 @@ private:
     /* the HD chain data model (external chain counters) */
     CHDChain hdChain;
 
+    std::vector<unsigned char> vchBIP39Seed;
+
     bool fFileBacked;
 
     std::set<int64_t> setKeyPool;
@@ -971,6 +973,12 @@ public:
     
     /* Set the current HD master key (will reset the chain child index counters) */
     bool SetHDMasterKey(const CPubKey& key);
+
+    /* Set BIP39 seed from mnemonic (encrypted) */
+    bool SetBIP39Seed(const std::vector<unsigned char>& seed, bool fBIP39Seed);
+
+    /* Decrypt BIP39 seed */
+    bool DecryptBIP39Seed(CKeyingMaterial& vchSecret);
 };
 
 /** A key allocated from the key pool. */
