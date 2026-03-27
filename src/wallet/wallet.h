@@ -971,6 +971,52 @@ public:
     
     /* Set the current HD master key (will reset the chain child index counters) */
     bool SetHDMasterKey(const CPubKey& key);
+    
+    /* BIP39 Mnemonic support */
+    
+    /* Generate a new BIP39 mnemonic and set it as the wallet's HD master key
+     * @param entropy_bytes Number of entropy bytes (16, 20, 24, 28, 32)
+     * @return The generated mnemonic phrase
+     */
+    std::string GenerateMnemonicWallet(int entropy_bytes = 32);
+    
+    /* Import a BIP39 mnemonic and set it as the wallet's HD master key
+     * @param mnemonic The mnemonic phrase to import
+     * @param passphrase Optional passphrase for the mnemonic
+     * @return true on success
+     */
+    bool ImportMnemonic(const std::string& mnemonic, const std::string& passphrase = "");
+    
+    /* Get the wallet's mnemonic phrase (only available if not encrypted)
+     * @return The mnemonic phrase, or empty string if not available
+     */
+    std::string GetMnemonic() const;
+    
+    /* Check if wallet was created with BIP39 mnemonic
+     * @return true if wallet has mnemonic seed
+     */
+    bool HasMnemonic() const;
+    
+    /* Encrypt mnemonic seed with wallet encryption key
+     * Called when wallet is encrypted
+     * @return true on success
+     */
+    bool EncryptMnemonicSeed();
+    
+    /* Decrypt mnemonic seed with wallet encryption key
+     * Called when wallet is unlocked
+     * @return true on success
+     */
+    bool DecryptMnemonicSeed();
+    
+    /* Override Lock to clear mnemonic from memory */
+    bool Lock();
+    
+private:
+    /* Cached decrypted mnemonic seed (only valid when wallet is unlocked) */
+    mutable CKeyingMaterial vMnemonicSeed;
+    /* Cached mnemonic phrase (only valid when wallet is unlocked) */
+    mutable std::string strMnemonic;
 };
 
 /** A key allocated from the key pool. */

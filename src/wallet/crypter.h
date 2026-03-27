@@ -193,6 +193,30 @@ public:
      * Note: Called without locks held.
      */
     boost::signals2::signal<void (CCryptoKeyStore* wallet)> NotifyStatusChanged;
+
+    /**
+     * Encrypt arbitrary data with the master key.
+     * Requires the wallet to be unlocked.
+     * @param vchPlaintext Data to encrypt
+     * @param vchCiphertext Encrypted data output
+     * @return true if successful
+     */
+    bool EncryptDataWithMasterKey(const CKeyingMaterial& vchPlaintext, std::vector<unsigned char>& vchCiphertext);
+
+    /**
+     * Decrypt data with the master key.
+     * Requires the wallet to be unlocked.
+     * @param vchCiphertext Data to decrypt
+     * @param vchPlaintext Decrypted data output
+     * @return true if successful
+     */
+    bool DecryptDataWithMasterKey(const std::vector<unsigned char>& vchCiphertext, CKeyingMaterial& vchPlaintext);
+
+    /**
+     * Check if we have a master key set (wallet is unlocked)
+     * @return true if master key is available
+     */
+    bool HaveMasterKey() const;
 };
 
 #endif // BITCOIN_WALLET_CRYPTER_H

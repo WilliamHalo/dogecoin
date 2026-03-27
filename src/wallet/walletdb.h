@@ -41,14 +41,22 @@ enum DBErrors
     DB_NEED_REWRITE
 };
 
-/* simple HD chain data model */
+/* simple HD chain data model with BIP39 support */
 class CHDChain
 {
 public:
     uint32_t nExternalChainCounter;
     CKeyID masterKeyID; //!< master key hash160
+    
+    // BIP39 mnemonic seed (encrypted when wallet is encrypted)
+    // Stores the 64-byte BIP39 seed derived from mnemonic
+    std::vector<unsigned char> vchEncryptedMnemonicSeed;
+    
+    // Flag indicating if mnemonic seed is encrypted
+    bool fMnemonicSeedEncrypted;
 
-    static const int CURRENT_VERSION = 1;
+    static const int CURRENT_VERSION = 2; // Bumped to version 2 for BIP39 support
+    static const int VERSION_WITH_BIP39 = 2;
     int nVersion;
 
     CHDChain() { SetNull(); }
@@ -59,6 +67,13 @@ public:
         READWRITE(this->nVersion);
         READWRITE(nExternalChainCounter);
         READWRITE(masterKeyID);
+        
+        // BIP39 data only in version 2+
+        if (this->nVersion >= VERSION_WITH_BIP39)
+        {
+            READWRITE(vchEncryptedMnemonicSeed);
+            READWRITE(fMnemonicSeedEncrypted);
+        }
     }
 
     void SetNull()
@@ -66,6 +81,13 @@ public:
         nVersion = CHDChain::CURRENT_VERSION;
         nExternalChainCounter = 0;
         masterKeyID.SetNull();
+        vchEncryptedMnemonicSeed.clear();
+        fMnemonicSeedEncrypted = false;
+    }
+    
+    bool HasMnemonicSeed() const
+    {
+        return !vchEncryptedMnemonicSeed.empty();
     }
 };
 
@@ -175,6 +197,12 @@ public:
 
     //! write the hdchain model (external chain child index counter)
     bool WriteHDChain(const CHDChain& chain);
+    
+    //! write encrypted mnemonic seed
+    bool WriteEncryptedMnemonicSeed(const std::vector<unsigned char>& vchEncryptedSeed);
+    
+    //! read encrypted mnemonic seed
+    bool ReadEncryptedMnemonicSeed(std::vector<unsigned char>& vchEncryptedSeed);
 
     static void IncrementUpdateCounter();
     static unsigned int GetUpdateCounter();

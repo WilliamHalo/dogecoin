@@ -6,6 +6,7 @@
 
 #include "crypto/aes.h"
 #include "crypto/sha512.h"
+#include "random.h"
 #include "script/script.h"
 #include "script/standard.h"
 #include "util.h"
@@ -299,4 +300,71 @@ bool CCryptoKeyStore::EncryptKeys(CKeyingMaterial& vMasterKeyIn)
         mapKeys.clear();
     }
     return true;
+}
+
+bool CCryptoKeyStore::EncryptDataWithMasterKey(const CKeyingMaterial& vchPlaintext, std::vector<unsigned char>& vchCiphertext)
+{
+    {
+        LOCK(cs_KeyStore);
+        if (vMasterKey.empty()) {
+            return false;
+        }
+    }
+    
+    // Generate random IV
+    std::vector<unsigned char> vchIV(WALLET_CRYPTO_IV_SIZE);
+    GetRandBytes(vchIV.data(), WALLET_CRYPTO_IV_SIZE);
+    
+    CCrypter crypter;
+    if (!crypter.SetKey(vMasterKey, vchIV)) {
+        return false;
+    }
+    
+    std::vector<unsigned char> vchEncrypted;
+    if (!crypter.Encrypt(vchPlaintext, vchEncrypted)) {
+        return false;
+    }
+    
+    // Prepend IV to encrypted data
+    vchCiphertext = vchIV;
+    vchCiphertext.insert(vchCiphertext.end(), vchEncrypted.begin(), vchEncrypted.end());
+    
+    return true;
+}
+
+bool CCryptoKeyStore::DecryptDataWithMasterKey(const std::vector<unsigned char>& vchCiphertext, CKeyingMaterial& vchPlaintext)
+{
+    {
+        LOCK(cs_KeyStore);
+        if (vMasterKey.empty()) {
+            return false;
+        }
+    }
+    
+    if (vchCiphertext.size() <= WALLET_CRYPTO_IV_SIZE) {
+        return false;
+    }
+    
+    // Extract IV (first 16 bytes)
+    std::vector<unsigned char> vchIV(vchCiphertext.begin(), vchCiphertext.begin() + WALLET_CRYPTO_IV_SIZE);
+    
+    // Extract encrypted data
+    std::vector<unsigned char> vchEncrypted(vchCiphertext.begin() + WALLET_CRYPTO_IV_SIZE, vchCiphertext.end());
+    
+    CCrypter crypter;
+    if (!crypter.SetKey(vMasterKey, vchIV)) {
+        return false;
+    }
+    
+    if (!crypter.Decrypt(vchEncrypted, vchPlaintext)) {
+        return false;
+    }
+    
+    return true;
+}
+
+bool CCryptoKeyStore::HaveMasterKey() const
+{
+    LOCK(cs_KeyStore);
+    return !vMasterKey.empty();
 }
