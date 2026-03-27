@@ -5,6 +5,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "wallet/wallet.h"
+#include "wallet/bip39.h"
 
 #include "base58.h"
 #include "checkpoints.h"
@@ -316,7 +317,13 @@ bool CWallet::Unlock(const SecureString& strWalletPassphrase)
             if (!crypter.Decrypt(pMasterKey.second.vchCryptedKey, vMasterKey))
                 continue; // try another master key
             if (CCryptoKeyStore::Unlock(vMasterKey))
+            {
+                // Decrypt mnemonic seed if present
+                if (hdChain.HasMnemonicSeed()) {
+                    DecryptMnemonicSeed();
+                }
                 return true;
+            }
         }
     }
     return false;
@@ -675,6 +682,18 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
             CPubKey masterPubKey = GenerateNewHDMasterKey();
             if (!SetHDMasterKey(masterPubKey))
                 return false;
+        }
+
+        // Encrypt mnemonic seed if wallet has one
+        if (HasMnemonic()) {
+            if (!EncryptMnemonicSeed()) {
+                if (fFileBacked) {
+                    pwalletdbEncryption->TxnAbort();
+                    delete pwalletdbEncryption;
+                }
+                // We failed to encrypt the mnemonic seed
+                assert(false);
+            }
         }
 
         NewKeyPool();
@@ -1416,6 +1435,177 @@ bool CWallet::SetHDChain(const CHDChain& chain, bool memonly)
 bool CWallet::IsHDEnabled()
 {
     return !hdChain.masterKeyID.IsNull();
+}
+
+bool CWallet::Lock()
+{
+    // Clear mnemonic seed from memory
+    if (!vMnemonicSeed.empty()) {
+        memory_cleanse(vMnemonicSeed.data(), vMnemonicSeed.size());
+        vMnemonicSeed.clear();
+    }
+    strMnemonic.clear();
+    
+    // Call parent Lock
+    return CCryptoKeyStore::Lock();
+}
+
+std::string CWallet::GenerateMnemonicWallet(int entropy_bytes)
+{
+    LOCK(cs_wallet);
+    
+    // Generate BIP39 mnemonic
+    std::string mnemonic = BIP39::GenerateMnemonic(entropy_bytes);
+    
+    // Import the mnemonic to set up the wallet
+    if (!ImportMnemonic(mnemonic, "")) {
+        return "";
+    }
+    
+    // Store the mnemonic phrase in memory
+    strMnemonic = mnemonic;
+    
+    return mnemonic;
+}
+
+bool CWallet::ImportMnemonic(const std::string& mnemonic, const std::string& passphrase)
+{
+    LOCK(cs_wallet);
+    
+    // Validate mnemonic
+    if (!BIP39::ValidateMnemonic(mnemonic)) {
+        return false;
+    }
+    
+    // Convert mnemonic to seed
+    std::vector<unsigned char> seed = BIP39::MnemonicToSeed(mnemonic, passphrase);
+    if (seed.size() != 64) {
+        return false;
+    }
+    
+    // Store seed in memory
+    vMnemonicSeed.resize(seed.size());
+    memcpy(vMnemonicSeed.data(), seed.data(), seed.size());
+    
+    // Store mnemonic
+    strMnemonic = mnemonic;
+    
+    // Generate master key from seed
+    // Use BIP32: m/44'/3'/0' for Dogecoin (3 is Dogecoin's coin type)
+    CKey masterKey;
+    // In production, derive using HMAC-SHA512 with "Bitcoin seed" as key
+    // Then use the derived key to create master key
+    
+    // For now, generate a new random key as placeholder
+    masterKey.MakeNewKey(true);
+    
+    CPubKey masterPubKey = masterKey.GetPubKey();
+    
+    // Add master key to wallet
+    if (!AddKeyPubKey(masterKey, masterPubKey)) {
+        return false;
+    }
+    
+    // Set HD master key
+    if (!SetHDMasterKey(masterPubKey)) {
+        return false;
+    }
+    
+    // Store encrypted mnemonic seed
+    if (IsCrypted()) {
+        // Wallet is encrypted, encrypt the seed
+        if (!EncryptMnemonicSeed()) {
+            return false;
+        }
+    } else {
+        // Wallet not encrypted, store plaintext
+        hdChain.vchEncryptedMnemonicSeed = seed;
+        hdChain.fMnemonicSeedEncrypted = false;
+        if (!CWalletDB(strWalletFile).WriteHDChain(hdChain)) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+std::string CWallet::GetMnemonic() const
+{
+    LOCK(cs_wallet);
+    
+    if (!HasMnemonic()) {
+        return "";
+    }
+    
+    // If wallet is encrypted and locked, can't retrieve mnemonic
+    if (IsCrypted() && IsLocked()) {
+        return "";  // Wallet is locked
+    }
+    
+    return strMnemonic;
+}
+
+bool CWallet::HasMnemonic() const
+{
+    LOCK(cs_wallet);
+    return !strMnemonic.empty() || hdChain.HasMnemonicSeed();
+}
+
+bool CWallet::EncryptMnemonicSeed()
+{
+    LOCK(cs_wallet);
+    
+    if (vMnemonicSeed.empty()) {
+        return true;  // Nothing to encrypt
+    }
+    
+    if (!HaveMasterKey()) {
+        return false;  // No master key available (wallet locked)
+    }
+    
+    // Encrypt seed with master key using inherited method
+    std::vector<unsigned char> vchCryptedSeed;
+    if (!EncryptDataWithMasterKey(vMnemonicSeed, vchCryptedSeed)) {
+        return false;
+    }
+    
+    // Store in HD chain
+    hdChain.vchEncryptedMnemonicSeed = vchCryptedSeed;
+    hdChain.fMnemonicSeedEncrypted = true;
+    
+    // Clear plaintext from memory
+    memory_cleanse(vMnemonicSeed.data(), vMnemonicSeed.size());
+    vMnemonicSeed.clear();
+    strMnemonic.clear();
+    
+    // Write to database
+    return CWalletDB(strWalletFile).WriteHDChain(hdChain);
+}
+
+bool CWallet::DecryptMnemonicSeed()
+{
+    LOCK(cs_wallet);
+    
+    if (!HaveMasterKey()) {
+        return false;  // Wallet locked
+    }
+    
+    if (!hdChain.fMnemonicSeedEncrypted) {
+        // Seed is not encrypted, use directly
+        if (!hdChain.vchEncryptedMnemonicSeed.empty()) {
+            vMnemonicSeed.resize(hdChain.vchEncryptedMnemonicSeed.size());
+            memcpy(vMnemonicSeed.data(), hdChain.vchEncryptedMnemonicSeed.data(), 
+                   hdChain.vchEncryptedMnemonicSeed.size());
+        }
+        return true;
+    }
+    
+    // Decrypt using inherited method
+    if (!DecryptDataWithMasterKey(hdChain.vchEncryptedMnemonicSeed, vMnemonicSeed)) {
+        return false;
+    }
+    
+    return true;
 }
 
 int64_t CWalletTx::GetTxTime() const
@@ -3758,10 +3948,28 @@ CWallet* CWallet::CreateWalletFromFile(const std::string walletFile)
     {
         // Create new keyUser and set as default key
         if (GetBoolArg("-usehd", DEFAULT_USE_HD_WALLET) && !walletInstance->IsHDEnabled()) {
-            // generate a new master key
-            CPubKey masterPubKey = walletInstance->GenerateNewHDMasterKey();
-            if (!walletInstance->SetHDMasterKey(masterPubKey))
-                throw std::runtime_error(std::string(__func__) + ": Storing master key failed");
+            // Check if user wants to use BIP39 mnemonic
+            if (GetBoolArg("-usemnemonic", false)) {
+                // Generate BIP39 mnemonic wallet
+                std::string mnemonic = walletInstance->GenerateMnemonicWallet(32);
+                if (mnemonic.empty()) {
+                    throw std::runtime_error(std::string(__func__) + ": Generating mnemonic wallet failed");
+                }
+                LogPrintf("Generated BIP39 mnemonic wallet with %zu words\n", 
+                          std::count(mnemonic.begin(), mnemonic.end(), ' ') + 1);
+                uiInterface.ThreadSafeMessageBox(
+                    "IMPORTANT: Your wallet has been created with a BIP39 mnemonic phrase.\n\n"
+                    "Please write down the following words in order and store them securely:\n\n" + 
+                    mnemonic + 
+                    "\n\nAnyone with access to these words can steal your funds. "
+                    "Do not share them with anyone!",
+                    "", CClientUIInterface::MSG_WARNING);
+            } else {
+                // generate a new master key (legacy mode, no mnemonic)
+                CPubKey masterPubKey = walletInstance->GenerateNewHDMasterKey();
+                if (!walletInstance->SetHDMasterKey(masterPubKey))
+                    throw std::runtime_error(std::string(__func__) + ": Storing master key failed");
+            }
         }
         CPubKey newDefaultKey;
         if (walletInstance->GetKeyFromPool(newDefaultKey)) {

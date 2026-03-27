@@ -951,6 +951,17 @@ bool CWalletDB::WriteHDChain(const CHDChain& chain)
     return Write(std::string("hdchain"), chain);
 }
 
+bool CWalletDB::WriteEncryptedMnemonicSeed(const std::vector<unsigned char>& vchEncryptedSeed)
+{
+    nWalletDBUpdateCounter++;
+    return Write(std::string("mnseed"), vchEncryptedSeed);
+}
+
+bool CWalletDB::ReadEncryptedMnemonicSeed(std::vector<unsigned char>& vchEncryptedSeed)
+{
+    return Read(std::string("mnseed"), vchEncryptedSeed);
+}
+
 void CWalletDB::IncrementUpdateCounter()
 {
     nWalletDBUpdateCounter++;
