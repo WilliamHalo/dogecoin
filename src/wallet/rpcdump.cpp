@@ -1150,3 +1150,179 @@ UniValue importmulti(const JSONRPCRequest& mainRequest)
 
     return response;
 }
+
+UniValue importmnemonic(const JSONRPCRequest& request)
+{
+    if (!EnsureWalletIsAvailable(request.fHelp))
+        return NullUniValue;
+
+    if (request.fHelp || request.params.size() < 1 || request.params.size() > 4)
+        throw runtime_error(
+            "importmnemonic \"mnemonic\" ( \"passphrase\" \"label\" rescan )\n"
+            "\nImports a BIP39 mnemonic phrase and derives keys from it.\n"
+            "\nArguments:\n"
+            "1. \"mnemonic\"       (string, required) The BIP39 mnemonic phrase (12/15/18/21/24 words)\n"
+            "2. \"passphrase\"     (string, optional, default=\"\") Optional BIP39 passphrase\n"
+            "3. \"label\"          (string, optional, default=\"\") An optional label for addresses\n"
+            "4. rescan             (boolean, optional, default=true) Rescan the wallet for transactions\n"
+            "\nNote: This call can take minutes to complete if rescan is true.\n"
+            "\nExamples:\n"
+            + HelpExampleCli("importmnemonic", "\"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about\"")
+            + HelpExampleCli("importmnemonic", "\"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about\" \"mypassword\" \"mywallet\" false")
+            + HelpExampleRpc("importmnemonic", "\"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about\", \"\", \"\", false")
+        );
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+
+    EnsureWalletIsUnlocked();
+
+    // Check if wallet already has keys
+    if (pwalletMain->HasMnemonicSeed()) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Wallet already has a mnemonic seed. Use a new wallet to import a different mnemonic.");
+    }
+
+    std::string strMnemonic = request.params[0].get_str();
+    std::string strPassphrase = "";
+    if (request.params.size() > 1)
+        strPassphrase = request.params[1].get_str();
+    std::string strLabel = "";
+    if (request.params.size() > 2)
+        strLabel = request.params[2].get_str();
+    bool fRescan = true;
+    if (request.params.size() > 3)
+        fRescan = request.params[3].get_bool();
+
+    if (fRescan && fPruneMode)
+        throw JSONRPCError(RPC_WALLET_ERROR, "Rescan is disabled in pruned mode");
+
+    // Validate mnemonic
+    if (!BIP39::CheckMnemonic(strMnemonic)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid BIP39 mnemonic phrase");
+    }
+
+    // Set the mnemonic seed
+    if (!pwalletMain->SetMnemonicSeed(strMnemonic, strPassphrase, false)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Failed to set mnemonic seed");
+    }
+
+    // Derive master key from mnemonic and set as HD master
+    CExtKey masterKey;
+    if (!pwalletMain->GetMnemonicMasterKey(masterKey)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Failed to derive master key from mnemonic");
+    }
+
+    CPubKey masterPubKey = masterKey.Neuter().pubkey;
+    if (!pwalletMain->SetHDMasterKey(masterPubKey)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Failed to set HD master key");
+    }
+
+    // Generate key pool
+    pwalletMain->NewKeyPool();
+
+    // Set default label
+    if (!strLabel.empty()) {
+        // Get the first address and set label
+        CPubKey newKey;
+        if (pwalletMain->GetKeyFromPool(newKey)) {
+            CKeyID keyID = newKey.GetID();
+            pwalletMain->SetAddressBook(keyID, strLabel, "receive");
+        }
+    }
+
+    // Rescan if requested
+    if (fRescan) {
+        pwalletMain->ScanForWalletTransactions(chainActive.Genesis(), true);
+        pwalletMain->ReacceptWalletTransactions();
+    }
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("success", true);
+    result.pushKV("hdmasterkeyid", masterPubKey.GetID().ToString());
+    return result;
+}
+
+UniValue getmnemonic(const JSONRPCRequest& request)
+{
+    if (!EnsureWalletIsAvailable(request.fHelp))
+        return NullUniValue;
+
+    if (request.fHelp || request.params.size() != 0)
+        throw runtime_error(
+            "getmnemonic\n"
+            "\nReturns the BIP39 mnemonic phrase for this wallet.\n"
+            "\nRequires wallet to be unlocked.\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"mnemonic\": \"word1 word2 ...\"  (string) The mnemonic phrase\n"
+            "}\n"
+            "\nExamples:\n"
+            + HelpExampleCli("getmnemonic", "")
+            + HelpExampleRpc("getmnemonic", "")
+        );
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+
+    EnsureWalletIsUnlocked();
+
+    if (!pwalletMain->HasMnemonicSeed()) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Wallet does not have a BIP39 mnemonic seed");
+    }
+
+    CMnemonicSeed seed;
+    if (!pwalletMain->GetMnemonicSeed(seed)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Failed to retrieve mnemonic seed (wallet may be locked)");
+    }
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("mnemonic", seed.strMnemonic);
+    return result;
+}
+
+UniValue generatemnemonic(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() > 2)
+        throw runtime_error(
+            "generatemnemonic ( \"passphrase\" strength )\n"
+            "\nGenerates a new BIP39 mnemonic phrase.\n"
+            "Note: This only generates the phrase - it does not import it into the wallet.\n"
+            "      Use importmnemonic to import the generated phrase.\n"
+            "\nArguments:\n"
+            "1. \"passphrase\"     (string, optional, default=\"\") Optional BIP39 passphrase\n"
+            "2. strength           (numeric, optional, default=256) Entropy strength in bits (128, 160, 192, 224, or 256)\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"mnemonic\": \"word1 word2 ...\"  (string) The generated mnemonic phrase\n"
+            "}\n"
+            "\nExamples:\n"
+            + HelpExampleCli("generatemnemonic", "")
+            + HelpExampleCli("generatemnemonic", "mypassword 256")
+            + HelpExampleRpc("generatemnemonic", "mypassword, 256")
+        );
+
+    std::string strPassphrase = "";
+    if (request.params.size() > 0)
+        strPassphrase = request.params[0].get_str();
+    int nStrength = 256;
+    if (request.params.size() > 1)
+        nStrength = request.params[1].get_int();
+
+    // Validate strength
+    if (nStrength != 128 && nStrength != 160 && nStrength != 192 && nStrength != 224 && nStrength != 256) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid strength: must be 128, 160, 192, 224, or 256");
+    }
+
+    // Generate entropy and mnemonic
+    SecureVector entropy = BIP39::GenerateEntropy(nStrength / 8);
+    std::string mnemonic = BIP39::EntropyToMnemonic(entropy, Language::ENGLISH);
+
+    // Clear entropy
+    memory_cleanse(entropy.data(), entropy.size());
+
+    if (mnemonic.empty()) {
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to generate mnemonic");
+    }
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("mnemonic", mnemonic);
+    return result;
+}

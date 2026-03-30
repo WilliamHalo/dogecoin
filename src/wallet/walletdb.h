@@ -9,6 +9,7 @@
 #include "amount.h"
 #include "primitives/transaction.h"
 #include "wallet/db.h"
+#include "wallet/bip39.h"
 #include "key.h"
 
 #include <list>
@@ -16,6 +17,10 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+// Database key for BIP39 mnemonic
+static const std::string DBKeys_MNEMONIC = "mnemonic";
+static const std::string DBKeys_CMNESEED = "cmneseed";  // Crypted mnemonic seed
 
 static const bool DEFAULT_FLUSHWALLET = true;
 
@@ -175,6 +180,15 @@ public:
 
     //! write the hdchain model (external chain child index counter)
     bool WriteHDChain(const CHDChain& chain);
+
+    //! write the BIP39 mnemonic seed (unencrypted)
+    bool WriteMnemonicSeed(const CMnemonicSeed& seed);
+
+    //! write the encrypted BIP39 mnemonic seed
+    bool WriteCryptedMnemonicSeed(const std::vector<unsigned char>& vchCryptedSecret);
+
+    //! erase the mnemonic seed
+    bool EraseMnemonicSeed();
 
     static void IncrementUpdateCounter();
     static unsigned int GetUpdateCounter();

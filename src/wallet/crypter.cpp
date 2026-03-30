@@ -300,3 +300,77 @@ bool CCryptoKeyStore::EncryptKeys(CKeyingMaterial& vMasterKeyIn)
     }
     return true;
 }
+
+static uint256 GetMnemonicIV()
+{
+    // Fixed IV for mnemonic seed encryption
+    std::string ivString = "DogecoinBIP39MnemonicSeedIV";
+    static const uint256 mnemonicIV = Hash((const unsigned char*)ivString.data(), (const unsigned char*)ivString.data() + ivString.size());
+    return mnemonicIV;
+}
+
+bool CCryptoKeyStore::EncryptMnemonicSeed(const CKeyingMaterial& vchSeedPlain, const uint256& seedHash)
+{
+    (void)seedHash; // seedHash parameter kept for interface compatibility but we use fixed IV
+    {
+        LOCK(cs_KeyStore);
+        if (fHasCryptedMnemonicSeed)
+            return false;
+        if (!IsCrypted() || IsLocked())
+            return false;
+
+        // Use fixed deterministic IV
+        uint256 iv = GetMnemonicIV();
+
+        if (!EncryptSecret(vMasterKey, vchSeedPlain, iv, vchCryptedMnemonicSeed))
+            return false;
+
+        fHasCryptedMnemonicSeed = true;
+    }
+    return true;
+}
+
+bool CCryptoKeyStore::DecryptMnemonicSeed(CKeyingMaterial& vchSeedPlain) const
+{
+    {
+        LOCK(cs_KeyStore);
+        if (!fHasCryptedMnemonicSeed)
+            return false;
+        if (!IsCrypted() || IsLocked())
+            return false;
+
+        // Use the same IV scheme as used for keys: public key hash
+        // For mnemonic seed, we use a fixed IV derived from a standard constant
+        // This is deterministic so we can decrypt without knowing the original seed hash
+        std::string ivString = "DogecoinBIP39MnemonicSeedIV";
+        static const uint256 mnemonicIV = Hash((const unsigned char*)ivString.data(), (const unsigned char*)ivString.data() + ivString.size());
+
+        if (!DecryptSecret(vMasterKey, vchCryptedMnemonicSeed, mnemonicIV, vchSeedPlain))
+            return false;
+    }
+    return true;
+}
+
+bool CCryptoKeyStore::GetCryptedMnemonicSeed(std::vector<unsigned char>& vchCryptedSecret) const
+{
+    {
+        LOCK(cs_KeyStore);
+        if (!fHasCryptedMnemonicSeed)
+            return false;
+        vchCryptedSecret = vchCryptedMnemonicSeed;
+    }
+    return true;
+}
+
+bool CCryptoKeyStore::SetCryptedMnemonicSeed(const std::vector<unsigned char>& vchCryptedSecret)
+{
+    {
+        LOCK(cs_KeyStore);
+        if (fHasCryptedMnemonicSeed)
+            return false;
+
+        vchCryptedMnemonicSeed = vchCryptedSecret;
+        fHasCryptedMnemonicSeed = true;
+    }
+    return true;
+}
