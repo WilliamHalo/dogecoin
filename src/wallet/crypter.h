@@ -126,6 +126,12 @@ private:
     //! keeps track of whether Unlock has run a thorough check before
     bool fDecryptionThoroughlyChecked;
 
+    //! Encrypted BIP39 mnemonic seed
+    std::vector<unsigned char> vchCryptedMnemonicSeed;
+
+    //! Whether we have a crypted mnemonic seed
+    bool fHasCryptedMnemonicSeed;
+
 protected:
     bool SetCrypted();
 
@@ -135,9 +141,24 @@ protected:
     bool Unlock(const CKeyingMaterial& vMasterKeyIn);
 
 public:
-    CCryptoKeyStore() : fUseCrypto(false), fDecryptionThoroughlyChecked(false)
+    CCryptoKeyStore() : fUseCrypto(false), fDecryptionThoroughlyChecked(false), fHasCryptedMnemonicSeed(false)
     {
     }
+
+    //! Encrypt the BIP39 mnemonic seed
+    bool EncryptMnemonicSeed(const CKeyingMaterial& vchSeedPlain, const uint256& seedHash);
+
+    //! Decrypt the BIP39 mnemonic seed
+    bool DecryptMnemonicSeed(CKeyingMaterial& vchSeedPlain) const;
+
+    //! Check if we have an encrypted mnemonic seed
+    bool HasCryptedMnemonicSeed() const { return fHasCryptedMnemonicSeed; }
+
+    //! Get the encrypted mnemonic seed
+    bool GetCryptedMnemonicSeed(std::vector<unsigned char>& vchCryptedSecret) const;
+
+    //! Set the encrypted mnemonic seed (used during wallet load)
+    bool SetCryptedMnemonicSeed(const std::vector<unsigned char>& vchCryptedSecret);
 
     bool IsCrypted() const
     {

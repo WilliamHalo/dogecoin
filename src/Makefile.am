@@ -247,12 +247,15 @@ libdogecoin_wallet_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 libdogecoin_wallet_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 libdogecoin_wallet_a_SOURCES = \
   wallet/crypter.cpp \
+  wallet/bip39.cpp \
+  wallet/bip39.h \
   wallet/db.cpp \
   wallet/rpcdump.cpp \
   wallet/rpcutil.cpp \
   wallet/rpcwallet.cpp \
   wallet/wallet.cpp \
   wallet/walletdb.cpp \
+  wallet/walletdb.h \
   policy/rbf.cpp \
   $(BITCOIN_CORE_H)
 

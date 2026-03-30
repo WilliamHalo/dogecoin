@@ -21,6 +21,7 @@
 #include "wallet/crypter.h"
 #include "wallet/walletdb.h"
 #include "wallet/rpcwallet.h"
+#include "wallet/bip39.h"
 
 #include <algorithm>
 #include <atomic>
@@ -582,6 +583,10 @@ private:
     /* the HD chain data model (external chain counters) */
     CHDChain hdChain;
 
+    /* BIP39 mnemonic seed */
+    CMnemonicSeed mnemonicSeed;
+    bool fHasMnemonicSeed;
+
     bool fFileBacked;
 
     std::set<int64_t> setKeyPool;
@@ -660,6 +665,7 @@ public:
         nLastResend = 0;
         nTimeFirstKey = 0;
         fBroadcastTransactions = false;
+        fHasMnemonicSeed = false;
     }
 
     std::map<uint256, CWalletTx> mapWallet;
@@ -968,9 +974,32 @@ public:
 
     /* Generates a new HD master key (will not be activated) */
     CPubKey GenerateNewHDMasterKey();
-    
+
     /* Set the current HD master key (will reset the chain child index counters) */
     bool SetHDMasterKey(const CPubKey& key);
+
+    /* BIP39 Mnemonic Seed functions */
+
+    //! Load an unencrypted mnemonic seed from database
+    bool LoadMnemonicSeed(const CMnemonicSeed& seed);
+
+    //! Load an encrypted mnemonic seed from database
+    bool LoadCryptedMnemonicSeed(const std::vector<unsigned char>& vchCryptedSecret);
+
+    //! Check if wallet has a mnemonic seed
+    bool HasMnemonicSeed() const { return fHasMnemonicSeed; }
+
+    //! Get the mnemonic seed (only works if wallet is unlocked)
+    bool GetMnemonicSeed(CMnemonicSeed& seedOut) const;
+
+    //! Set a new mnemonic seed from mnemonic phrase
+    bool SetMnemonicSeed(const std::string& mnemonic, const std::string& passphrase = "", bool memonly = false);
+
+    //! Generate a new mnemonic seed
+    bool GenerateMnemonicSeed(const std::string& passphrase = "", bool memonly = false);
+
+    //! Get the master BIP32 key from mnemonic seed
+    bool GetMnemonicMasterKey(CExtKey& xprv) const;
 };
 
 /** A key allocated from the key pool. */

@@ -538,6 +538,29 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
                 return false;
             }
         }
+        else if (strType == "mnemonic")
+        {
+            // Unencrypted mnemonic seed
+            CMnemonicSeed seed;
+            ssValue >> seed;
+            if (!pwallet->LoadMnemonicSeed(seed))
+            {
+                strErr = "Error reading wallet database: LoadMnemonicSeed failed";
+                return false;
+            }
+        }
+        else if (strType == "cmneseed")
+        {
+            // Encrypted mnemonic seed
+            std::vector<unsigned char> vchCryptedSecret;
+            ssValue >> vchCryptedSecret;
+            if (!pwallet->LoadCryptedMnemonicSeed(vchCryptedSecret))
+            {
+                strErr = "Error reading wallet database: LoadCryptedMnemonicSeed failed";
+                return false;
+            }
+            wss.fIsEncrypted = true;
+        }
     } catch (...)
     {
         return false;
@@ -548,7 +571,8 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
 static bool IsKeyType(string strType)
 {
     return (strType== "key" || strType == "wkey" ||
-            strType == "mkey" || strType == "ckey");
+            strType == "mkey" || strType == "ckey" ||
+            strType == "mnemonic" || strType == "cmneseed");
 }
 
 DBErrors CWalletDB::LoadWallet(CWallet* pwallet)
@@ -780,6 +804,33 @@ DBErrors CWalletDB::ZapWalletTx(CWallet* pwallet, vector<CWalletTx>& vWtx)
     return DB_LOAD_OK;
 }
 
+bool CWalletDB::WriteMnemonicSeed(const CMnemonicSeed& seed)
+{
+    nWalletDBUpdateCounter++;
+    return Write(std::make_pair(std::string(DBKeys_MNEMONIC), std::string("seed")), seed);
+}
+
+bool CWalletDB::WriteCryptedMnemonicSeed(const std::vector<unsigned char>& vchCryptedSecret)
+{
+    nWalletDBUpdateCounter++;
+    // Erase unencrypted version first
+    Erase(std::make_pair(std::string(DBKeys_MNEMONIC), std::string("seed")));
+    return Write(std::make_pair(std::string(DBKeys_CMNESEED), std::string("seed")), vchCryptedSecret, false);
+}
+
+bool CWalletDB::EraseMnemonicSeed()
+{
+    nWalletDBUpdateCounter++;
+    bool success = true;
+    if (!Erase(std::make_pair(std::string(DBKeys_MNEMONIC), std::string("seed")))) {
+        success = false;
+    }
+    if (!Erase(std::make_pair(std::string(DBKeys_CMNESEED), std::string("seed")))) {
+        success = false;
+    }
+    return success;
+}
+
 void ThreadFlushWalletDB()
 {
     // Make this thread recognisable as the wallet flushing thread
@@ -907,7 +958,7 @@ bool CWalletDB::Recover(CDBEnv& dbenv, const std::string& filename, bool fOnlyKe
                 fReadOK = ReadKeyValue(&dummyWallet, ssKey, ssValue,
                                         wss, strType, strErr);
             }
-            if (!IsKeyType(strType) && strType != "hdchain")
+            if (!IsKeyType(strType) && strType != "hdchain" && strType != "mnemonic")
                 continue;
             if (!fReadOK)
             {
