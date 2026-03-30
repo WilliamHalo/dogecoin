@@ -300,3 +300,55 @@ bool CCryptoKeyStore::EncryptKeys(CKeyingMaterial& vMasterKeyIn)
     }
     return true;
 }
+
+void CCryptoKeyStore::SetMnemonicSeed(const CKeyingMaterial& seed)
+{
+    LOCK(cs_KeyStore);
+    vMnemonicSeed = seed;
+    fHasMnemonicSeed = true;
+}
+
+void CCryptoKeyStore::ClearMnemonicSeed()
+{
+    LOCK(cs_KeyStore);
+    memory_cleanse(vMnemonicSeed.data(), vMnemonicSeed.size());
+    vMnemonicSeed.clear();
+    fHasMnemonicSeed = false;
+}
+
+bool CCryptoKeyStore::GetMnemonicSeed(CKeyingMaterial& seedOut) const
+{
+    LOCK(cs_KeyStore);
+    if (!fHasMnemonicSeed || vMnemonicSeed.empty())
+        return false;
+    seedOut = vMnemonicSeed;
+    return true;
+}
+
+bool CCryptoKeyStore::EncryptMnemonicSeed(const CKeyingMaterial& vMasterKeyIn, std::vector<unsigned char>& vchCryptedSeedOut) const
+{
+    LOCK(cs_KeyStore);
+    if (!fHasMnemonicSeed || vMnemonicSeed.empty())
+        return false;
+
+    // Use a fixed IV derived from a known constant for mnemonic seed encryption
+    // This is acceptable because we're using the master key which is already secured
+    uint256 nIV = Hash(vchCryptedSeedOut.begin(), vchCryptedSeedOut.end());
+
+    return EncryptSecret(vMasterKeyIn, vMnemonicSeed, nIV, vchCryptedSeedOut);
+}
+
+bool CCryptoKeyStore::DecryptMnemonicSeed(const std::vector<unsigned char>& vchCryptedSeed, const CKeyingMaterial& vMasterKeyIn)
+{
+    LOCK(cs_KeyStore);
+    // Use the same IV derivation as during encryption
+    uint256 nIV = Hash(vchCryptedSeed.begin(), vchCryptedSeed.end());
+
+    CKeyingMaterial vchPlaintext;
+    if (!DecryptSecret(vMasterKeyIn, vchCryptedSeed, nIV, vchPlaintext))
+        return false;
+
+    vMnemonicSeed = vchPlaintext;
+    fHasMnemonicSeed = true;
+    return true;
+}

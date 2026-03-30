@@ -126,6 +126,10 @@ private:
     //! keeps track of whether Unlock has run a thorough check before
     bool fDecryptionThoroughlyChecked;
 
+    //! BIP39 mnemonic seed (cached in memory only when unlocked)
+    mutable CKeyingMaterial vMnemonicSeed;
+    mutable bool fHasMnemonicSeed;
+
 protected:
     bool SetCrypted();
 
@@ -157,6 +161,14 @@ public:
     }
 
     bool Lock();
+
+    //! BIP39 mnemonic encryption/decryption methods
+    void SetMnemonicSeed(const CKeyingMaterial& seed);
+    void ClearMnemonicSeed();
+    bool GetMnemonicSeed(CKeyingMaterial& seedOut) const;
+    bool HasMnemonicSeed() const { return fHasMnemonicSeed && !vMnemonicSeed.empty(); }
+    bool EncryptMnemonicSeed(const CKeyingMaterial& vMasterKeyIn, std::vector<unsigned char>& vchCryptedSeedOut) const;
+    bool DecryptMnemonicSeed(const std::vector<unsigned char>& vchCryptedSeed, const CKeyingMaterial& vMasterKeyIn);
 
     virtual bool AddCryptedKey(const CPubKey &vchPubKey, const std::vector<unsigned char> &vchCryptedSecret);
     bool AddKeyPubKey(const CKey& key, const CPubKey &pubkey);
