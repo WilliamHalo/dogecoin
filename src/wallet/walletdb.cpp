@@ -538,6 +538,20 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
                 return false;
             }
         }
+        else if (strType == "mnemonicseed")
+        {
+            // BIP39 encrypted mnemonic seed - read into hdChain
+            std::vector<unsigned char> vchCryptedSeed;
+            ssValue >> vchCryptedSeed;
+            CHDChain chain = pwallet->GetHDChain();
+            chain.fFromMnemonic = true;
+            chain.vchCryptedMnemonicSeed = vchCryptedSeed;
+            if (!pwallet->SetHDChain(chain, true))
+            {
+                strErr = "Error reading wallet database: SetHDChain failed for mnemonic seed";
+                return false;
+            }
+        }
     } catch (...)
     {
         return false;
@@ -949,6 +963,17 @@ bool CWalletDB::WriteHDChain(const CHDChain& chain)
 {
     nWalletDBUpdateCounter++;
     return Write(std::string("hdchain"), chain);
+}
+
+bool CWalletDB::WriteEncryptedMnemonicSeed(const std::vector<unsigned char>& vchCryptedSeed)
+{
+    nWalletDBUpdateCounter++;
+    return Write(std::string("mnemonicseed"), vchCryptedSeed);
+}
+
+bool CWalletDB::ReadEncryptedMnemonicSeed(std::vector<unsigned char>& vchCryptedSeed)
+{
+    return Read(std::string("mnemonicseed"), vchCryptedSeed);
 }
 
 void CWalletDB::IncrementUpdateCounter()

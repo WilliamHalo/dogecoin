@@ -81,6 +81,7 @@ BITCOIN_CORE_H = \
   attributes.h \
   auxpow.h \
   base58.h \
+  bip39.h \
   bloom.h \
   blockencodings.h \
   chain.h \
@@ -193,6 +194,7 @@ libdogecoin_server_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 libdogecoin_server_a_SOURCES = \
   addrman.cpp \
   addrdb.cpp \
+  bip39.cpp \
   bloom.cpp \
   blockencodings.cpp \
   chain.cpp \

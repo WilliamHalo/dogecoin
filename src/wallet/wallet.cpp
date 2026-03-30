@@ -7,11 +7,13 @@
 #include "wallet/wallet.h"
 
 #include "base58.h"
+#include "bip39.h"
 #include "checkpoints.h"
 #include "chain.h"
 #include "dogecoin.h"
 #include "dogecoin-fees.h"
 #include "fs.h"
+#include "support/cleanse.h"
 #include "wallet/coincontrol.h"
 #include "consensus/consensus.h"
 #include "consensus/validation.h"
@@ -315,8 +317,16 @@ bool CWallet::Unlock(const SecureString& strWalletPassphrase)
                 return false;
             if (!crypter.Decrypt(pMasterKey.second.vchCryptedKey, vMasterKey))
                 continue; // try another master key
-            if (CCryptoKeyStore::Unlock(vMasterKey))
+            if (CCryptoKeyStore::Unlock(vMasterKey)) {
+                // Decrypt BIP39 mnemonic seed if present
+                if (IsHDEnabled() && hdChain.HasMnemonicSeed() && !hdChain.vchCryptedMnemonicSeed.empty()) {
+                    if (!DecryptMnemonicSeed(hdChain.vchCryptedMnemonicSeed, vMasterKey)) {
+                        LogPrintf("Warning: Failed to decrypt BIP39 mnemonic seed\n");
+                        // Continue anyway - keys are usable even if mnemonic can't be decrypted
+                    }
+                }
                 return true;
+            }
         }
     }
     return false;
@@ -648,6 +658,24 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
             // We now probably have half of our keys encrypted in memory, and half not...
             // die and let the user reload the unencrypted wallet.
             assert(false);
+        }
+
+        // Encrypt BIP39 mnemonic seed if present
+        if (HasBIP39Mnemonic()) {
+            std::vector<unsigned char> cryptedSeed;
+            CKeyingMaterial seedMaterial;
+            if (GetMnemonicSeed(seedMaterial)) {
+                if (!EncryptMnemonicSeed(vMasterKey, cryptedSeed)) {
+                    if (fFileBacked) {
+                        pwalletdbEncryption->TxnAbort();
+                        delete pwalletdbEncryption;
+                    }
+                    assert(false);
+                }
+                hdChain.vchCryptedMnemonicSeed = cryptedSeed;
+                if (pwalletdbEncryption)
+                    pwalletdbEncryption->WriteEncryptedMnemonicSeed(cryptedSeed);
+            }
         }
 
         // Encryption was introduced in version 0.4.0
@@ -1416,6 +1444,84 @@ bool CWallet::SetHDChain(const CHDChain& chain, bool memonly)
 bool CWallet::IsHDEnabled()
 {
     return !hdChain.masterKeyID.IsNull();
+}
+
+bool CWallet::GenerateFromMnemonic(const std::string& mnemonic, const std::string& passphrase)
+{
+    if (!ValidateBIP39Mnemonic(mnemonic))
+        return false;
+
+    // Convert mnemonic to seed using BIP39
+    CKeyingMaterial seed = MnemonicToSeed(mnemonic, passphrase);
+    if (seed.empty())
+        return false;
+
+    // Store seed in memory (will be encrypted if wallet is encrypted later)
+    SetMnemonicSeed(seed);
+
+    return SetHDMasterKeyFromSeed(seed);
+}
+
+bool CWallet::SetHDMasterKeyFromSeed(const CKeyingMaterial& seed)
+{
+    if (seed.size() != 64)
+        return false;
+
+    CExtKey masterKey;
+    masterKey.SetMaster(seed.data(), seed.size());
+
+    CKey key = masterKey.key;
+    CPubKey pubkey = key.GetPubKey();
+    assert(key.VerifyPubKey(pubkey));
+
+    int64_t nCreationTime = GetTime();
+    CKeyMetadata metadata(nCreationTime);
+    metadata.hdKeypath = "m";
+    metadata.hdMasterKeyID = pubkey.GetID();
+
+    {
+        LOCK(cs_wallet);
+        mapKeyMetadata[pubkey.GetID()] = metadata;
+        if (!AddKeyPubKey(key, pubkey))
+            return false;
+
+        SetMinVersion(FEATURE_HD);
+
+        CHDChain newHdChain;
+        newHdChain.masterKeyID = pubkey.GetID();
+        newHdChain.fFromMnemonic = true;
+
+        // If wallet is already encrypted, encrypt the seed
+        if (IsCrypted()) {
+            std::vector<unsigned char> cryptedSeed;
+            if (!EncryptMnemonicSeed(seed, cryptedSeed))
+                return false;
+            newHdChain.vchCryptedMnemonicSeed = cryptedSeed;
+        }
+
+        SetHDChain(newHdChain, false);
+    }
+
+    return true;
+}
+
+std::string CWallet::GenerateBIP39Mnemonic(int strength)
+{
+    return ::GenerateNewMnemonic(strength);
+}
+
+bool CWallet::GetBIP39Seed(std::vector<unsigned char>& seedOut) const
+{
+    CKeyingMaterial seed;
+    if (!GetMnemonicSeed(seed))
+        return false;
+    seedOut = std::vector<unsigned char>(seed.begin(), seed.end());
+    return true;
+}
+
+bool CWallet::ValidateBIP39Mnemonic(const std::string& mnemonic)
+{
+    return ::ValidateMnemonic(mnemonic);
 }
 
 int64_t CWalletTx::GetTxTime() const

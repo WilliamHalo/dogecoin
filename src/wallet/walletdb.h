@@ -48,6 +48,10 @@ public:
     uint32_t nExternalChainCounter;
     CKeyID masterKeyID; //!< master key hash160
 
+    // BIP39 mnemonic support
+    bool fFromMnemonic;                          //!< true if HD chain was created from BIP39 mnemonic
+    std::vector<unsigned char> vchCryptedMnemonicSeed; //!< encrypted BIP39 mnemonic seed (only when using mnemonic)
+
     static const int CURRENT_VERSION = 1;
     int nVersion;
 
@@ -59,6 +63,10 @@ public:
         READWRITE(this->nVersion);
         READWRITE(nExternalChainCounter);
         READWRITE(masterKeyID);
+        READWRITE(fFromMnemonic);
+        if (fFromMnemonic) {
+            READWRITE(vchCryptedMnemonicSeed);
+        }
     }
 
     void SetNull()
@@ -66,6 +74,13 @@ public:
         nVersion = CHDChain::CURRENT_VERSION;
         nExternalChainCounter = 0;
         masterKeyID.SetNull();
+        fFromMnemonic = false;
+        vchCryptedMnemonicSeed.clear();
+    }
+
+    bool HasMnemonicSeed() const
+    {
+        return fFromMnemonic && !vchCryptedMnemonicSeed.empty();
     }
 };
 
@@ -175,6 +190,12 @@ public:
 
     //! write the hdchain model (external chain child index counter)
     bool WriteHDChain(const CHDChain& chain);
+
+    //! write encrypted mnemonic seed
+    bool WriteEncryptedMnemonicSeed(const std::vector<unsigned char>& vchCryptedSeed);
+
+    //! read encrypted mnemonic seed
+    bool ReadEncryptedMnemonicSeed(std::vector<unsigned char>& vchCryptedSeed);
 
     static void IncrementUpdateCounter();
     static unsigned int GetUpdateCounter();

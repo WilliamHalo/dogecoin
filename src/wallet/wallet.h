@@ -968,9 +968,29 @@ public:
 
     /* Generates a new HD master key (will not be activated) */
     CPubKey GenerateNewHDMasterKey();
-    
+
     /* Set the current HD master key (will reset the chain child index counters) */
     bool SetHDMasterKey(const CPubKey& key);
+
+    /* BIP39 Mnemonic Support */
+
+    //! Generate HD master key and chain from BIP39 mnemonic
+    bool GenerateFromMnemonic(const std::string& mnemonic, const std::string& passphrase);
+
+    //! Set HD master key from a 64-byte BIP39 seed
+    bool SetHDMasterKeyFromSeed(const CKeyingMaterial& seed);
+
+    //! Generate a new BIP39 mnemonic phrase
+    static std::string GenerateBIP39Mnemonic(int strength = 256);
+
+    //! Get the decrypted BIP39 mnemonic seed from memory (wallet must be unlocked)
+    bool GetBIP39Seed(std::vector<unsigned char>& seedOut) const;
+
+    //! Check if wallet was created from a BIP39 mnemonic
+    bool HasBIP39Mnemonic() const { return hdChain.HasMnemonicSeed(); }
+
+    //! Validate a BIP39 mnemonic phrase
+    static bool ValidateBIP39Mnemonic(const std::string& mnemonic);
 };
 
 /** A key allocated from the key pool. */
