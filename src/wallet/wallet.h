@@ -21,6 +21,7 @@
 #include "wallet/crypter.h"
 #include "wallet/walletdb.h"
 #include "wallet/rpcwallet.h"
+#include "support/allocators/secure.h"
 
 #include <algorithm>
 #include <atomic>
@@ -582,6 +583,13 @@ private:
     /* the HD chain data model (external chain counters) */
     CHDChain hdChain;
 
+    /* BIP39 mnemonic data */
+    std::vector<unsigned char> vchCryptedMnemonic;  //!< encrypted mnemonic
+    std::vector<unsigned char> vchMnemonicSalt;     //!< salt for mnemonic encryption
+    std::string strMnemonicLanguage;                //!< language code for mnemonic (en, zh_CN, etc.)
+    bool fHasMnemonic;                              //!< whether wallet has BIP39 mnemonic
+    CKeyingMaterial vchMnemonic;                    //!< in-memory decrypted mnemonic (separate from vchCryptedMnemonic)
+
     bool fFileBacked;
 
     std::set<int64_t> setKeyPool;
@@ -659,6 +667,8 @@ public:
         nNextResend = 0;
         nLastResend = 0;
         nTimeFirstKey = 0;
+        fHasMnemonic = false;
+        fBroadcastTransactions = false;
         fBroadcastTransactions = false;
     }
 
@@ -971,6 +981,28 @@ public:
     
     /* Set the current HD master key (will reset the chain child index counters) */
     bool SetHDMasterKey(const CPubKey& key);
+
+    /* BIP39 mnemonic wallet support */
+    bool HasMnemonic() const { return fHasMnemonic; }
+    std::string GetMnemonicLanguage() const { return strMnemonicLanguage; }
+
+    //! Import wallet from mnemonic phrase, returns the HD master key
+    bool ImportFromMnemonic(const std::string& strPhrase, const std::string& strLanguage);
+    bool ImportFromMnemonic(const SecureString& strPhrase, const SecureString& strPassphrase, const std::string& strLanguage, SecureString& strMnemonic);
+
+    //! Generate new mnemonic wallet
+    bool GenerateNewMnemonic(SecureString& strMnemonic, const std::string& strLanguage);
+
+    //! Get the mnemonic seed (only when wallet is unlocked)
+    bool GetMnemonic(SecureString& strMnemonic) const;
+
+    //! Store encrypted mnemonic to database
+    bool WriteCryptedMnemonic(const std::vector<unsigned char>& vchMnemonic, const std::vector<unsigned char>& vchSalt, const std::string& strLanguage);
+    bool LoadCryptedMnemonic(const std::vector<unsigned char>& vchMnemonic, const std::vector<unsigned char>& vchSalt, const std::string& strLanguage);
+
+    //! Encrypt mnemonic with master key (called when wallet is encrypted)
+    bool EncryptMnemonic(const CKeyingMaterial& vMasterKeyIn);
+    bool DecryptMnemonic(const CKeyingMaterial& vMasterKeyIn);
 };
 
 /** A key allocated from the key pool. */

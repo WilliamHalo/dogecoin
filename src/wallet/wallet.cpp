@@ -650,6 +650,17 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
             assert(false);
         }
 
+        // Encrypt BIP39 mnemonic if present
+        if (fHasMnemonic && !vchMnemonic.empty()) {
+            if (!EncryptMnemonic(vMasterKey)) {
+                if (fFileBacked) {
+                    pwalletdbEncryption->TxnAbort();
+                    delete pwalletdbEncryption;
+                }
+                assert(false);
+            }
+        }
+
         // Encryption was introduced in version 0.4.0
         SetMinVersion(FEATURE_WALLETCRYPT, pwalletdbEncryption, true);
 
@@ -4059,4 +4070,200 @@ CWalletKey::CWalletKey(int64_t nExpires)
 {
     nTimeCreated = (nExpires ? GetTime() : 0);
     nTimeExpires = nExpires;
+}
+
+#include "wallet/bip39.h"
+#include "crypto/aes.h"
+
+// BIP39 Mnemonic helper: convert CKeyingMaterial to SecureString
+static SecureString KeyingMaterialToMnemonic(const CKeyingMaterial& material)
+{
+    return SecureString(material.begin(), material.end());
+}
+
+bool CWallet::ImportFromMnemonic(const std::string& strPhrase, const std::string& strLanguage)
+{
+    SecureString sPhrase(strPhrase.begin(), strPhrase.end());
+    return ImportFromMnemonic(sPhrase, SecureString(), strLanguage, sPhrase);
+}
+
+bool CWallet::ImportFromMnemonic(const SecureString& strPhrase, const SecureString& strPassphrase, const std::string& strLanguage, SecureString& strMnemonic)
+{
+    LOCK(cs_wallet);
+
+    // Validate mnemonic phrase
+    BIP39::Language lang = BIP39::GetLanguageFromCode(strLanguage);
+    if (!BIP39::IsValidMnemonic(strPhrase, lang)) {
+        return false;
+    }
+
+    // Convert mnemonic to seed (64 bytes)
+    std::vector<unsigned char> vchSeed;
+    if (!BIP39::MnemonicToSeed(strPhrase, strPassphrase, vchSeed)) {
+        return false;
+    }
+
+    // Use seed as BIP32 master key
+    CKey key;
+    key.Set(vchSeed.data(), vchSeed.data() + 32, true); // Use first 32 bytes as master key
+
+    // Securely clear seed
+    memory_cleanse(vchSeed.data(), vchSeed.size());
+
+    CPubKey masterPubKey = key.GetPubKey();
+    if (!masterPubKey.IsValid()) {
+        return false;
+    }
+
+    // Set up HD chain
+    CHDChain newHdChain;
+    newHdChain.masterKeyID = masterPubKey.GetID();
+    newHdChain.nExternalChainCounter = 0;
+
+    if (!SetHDChain(newHdChain, false)) {
+        return false;
+    }
+
+    // Add the master key
+    if (!AddKeyPubKey(key, masterPubKey)) {
+        return false;
+    }
+
+    // Store in memory and DB
+    vchMnemonic = CKeyingMaterial(strPhrase.begin(), strPhrase.end());
+    strMnemonicLanguage = strLanguage.empty() ? "en" : strLanguage;
+    fHasMnemonic = true;
+
+    // Generate new key pool
+    if (!NewKeyPool()) {
+        return false;
+    }
+
+    return true;
+}
+
+bool CWallet::GenerateNewMnemonic(SecureString& strMnemonic, const std::string& strLanguage)
+{
+    LOCK(cs_wallet);
+
+    // Generate 256-bit mnemonic (24 words)
+    BIP39::Language lang = BIP39::GetLanguageFromCode(strLanguage);
+    if (!BIP39::GenerateMnemonic(strMnemonic, 256, lang)) {
+        return false;
+    }
+
+    // Import the newly generated mnemonic
+    SecureString emptyPassphrase;
+    SecureString outMnemonic;
+    if (!ImportFromMnemonic(strMnemonic, emptyPassphrase, strLanguage.empty() ? "en" : strLanguage, outMnemonic)) {
+        return false;
+    }
+
+    return true;
+}
+
+bool CWallet::GetMnemonic(SecureString& strMnemonic) const
+{
+    LOCK(cs_wallet);
+
+    if (!fHasMnemonic || vchMnemonic.empty()) {
+        return false;
+    }
+
+    // Can only get mnemonic when wallet is unlocked
+    if (IsCrypted() && IsLocked()) {
+        return false;
+    }
+
+    strMnemonic = KeyingMaterialToMnemonic(vchMnemonic);
+    return true;
+}
+
+bool CWallet::WriteCryptedMnemonic(const std::vector<unsigned char>& vchMnemonicIn, const std::vector<unsigned char>& vchSalt, const std::string& strLanguage)
+{
+    if (!fFileBacked) {
+        return false;
+    }
+    return CWalletDB(strWalletFile).WriteMnemonic(vchMnemonicIn, vchSalt, strLanguage);
+}
+
+bool CWallet::LoadCryptedMnemonic(const std::vector<unsigned char>& vchMnemonicIn, const std::vector<unsigned char>& vchSalt, const std::string& strLanguage)
+{
+    LOCK(cs_wallet);
+    vchCryptedMnemonic = vchMnemonicIn;
+    vchMnemonicSalt = vchSalt;
+    strMnemonicLanguage = strLanguage;
+    fHasMnemonic = true;
+    return true;
+}
+
+#include "wallet/crypter.h"
+
+bool CWallet::EncryptMnemonic(const CKeyingMaterial& vMasterKeyIn)
+{
+    if (vchMnemonic.empty()) {
+        return false;
+    }
+
+    CCrypter crypter;
+    std::vector<unsigned char> vchSalt(WALLET_CRYPTO_SALT_SIZE);
+    GetStrongRandBytes(&vchSalt[0], WALLET_CRYPTO_SALT_SIZE);
+
+    // Generate encryption key from master key
+    if (!crypter.SetKeyFromPassphrase(
+            SecureString(vMasterKeyIn.begin(), vMasterKeyIn.end()),
+            vchSalt, 25000, 0)) {
+        return false;
+    }
+
+    // Encrypt mnemonic
+    std::vector<unsigned char> vchEncrypted;
+    if (!crypter.Encrypt(vchMnemonic, vchEncrypted)) {
+        return false;
+    }
+
+    // Store encrypted mnemonic
+    vchCryptedMnemonic = vchEncrypted;
+    vchMnemonicSalt = vchSalt;
+
+    // Write to database
+    if (fFileBacked) {
+        if (!WriteCryptedMnemonic(vchCryptedMnemonic, vchMnemonicSalt, strMnemonicLanguage)) {
+            return false;
+        }
+    }
+
+    // Clear unencrypted mnemonic from memory
+    memory_cleanse(vchMnemonic.data(), vchMnemonic.size());
+    vchMnemonic.clear();
+
+    return true;
+}
+
+bool CWallet::DecryptMnemonic(const CKeyingMaterial& vMasterKeyIn)
+{
+    if (vchCryptedMnemonic.empty()) {
+        return false;
+    }
+
+    CCrypter crypter;
+    if (!crypter.SetKeyFromPassphrase(
+            SecureString(vMasterKeyIn.begin(), vMasterKeyIn.end()),
+            vchMnemonicSalt, 25000, 0)) {
+        return false;
+    }
+
+    // Decrypt mnemonic
+    CKeyingMaterial vchDecrypted;
+
+    if (!crypter.Decrypt(vchCryptedMnemonic, vchDecrypted)) {
+        return false;
+    }
+
+    vchMnemonic = vchDecrypted;
+
+    // Securely clear temporary buffer
+    memory_cleanse(vchDecrypted.data(), vchDecrypted.size());
+
+    return true;
 }
