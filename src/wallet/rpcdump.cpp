@@ -1150,3 +1150,117 @@ UniValue importmulti(const JSONRPCRequest& mainRequest)
 
     return response;
 }
+
+#include "wallet/bip39.h"
+#include "support/allocators/secure.h"
+
+UniValue importmnemonic(const JSONRPCRequest& request)
+{
+    if (!EnsureWalletIsAvailable(request.fHelp))
+        return NullUniValue;
+
+    if (request.fHelp || request.params.size() < 1 || request.params.size() > 4)
+        throw runtime_error(
+            "importmnemonic \"mnemonic\" ( \"language\" \"mnemonicsalt\" rescan )\n"
+            "\nImport a BIP39 mnemonic phrase to restore your wallet.\n"
+            "\nArguments:\n"
+            "1. \"mnemonic\"     (string, required) The BIP39 mnemonic phrase (12, 15, 18, 21, or 24 words)\n"
+            "2. \"language\"     (string, optional, default=\"en\") Language of the mnemonic (en, zh_CN, zh_TW, ja, es, fr, it, ko)\n"
+            "3. \"mnemonicsalt\" (string, optional, default=\"\") Optional passphrase for the mnemonic (BIP39 extension)\n"
+            "4. rescan          (boolean, optional, default=true) Rescan the wallet for transactions\n"
+            "\nNote: This call can take minutes to complete if rescan is true.\n"
+            "This will replace the existing HD master key and all derived addresses.\n"
+            "\nExamples:\n"
+            + HelpExampleCli("importmnemonic", "\"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about\"")
+            + HelpExampleCli("importmnemonic", "\"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about\" \"en\" \"\" false")
+            + HelpExampleRpc("importmnemonic", "\"abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about\", \"en\", \"\", true")
+        );
+
+    if (request.params.size() < 1)
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Missing mnemonic phrase");
+
+    std::string strPhrase = request.params[0].get_str();
+    std::string strLanguage = (request.params.size() > 1) ? request.params[1].get_str() : "en";
+    std::string strPassphrase = (request.params.size() > 2) ? request.params[2].get_str() : "";
+    bool fRescan = true;
+    if (request.params.size() > 3)
+        fRescan = request.params[3].get_bool();
+
+    // Convert to SecureString
+    SecureString strSecurePhrase(strPhrase.begin(), strPhrase.end());
+    SecureString strSecurePassphrase(strPassphrase.begin(), strPassphrase.end());
+    SecureString strOutMnemonic;
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+    EnsureWalletIsUnlocked();
+
+    // Validate the mnemonic first
+    BIP39::Language lang = BIP39::GetLanguageFromCode(strLanguage);
+    if (!BIP39::IsValidMnemonic(strSecurePhrase, lang)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid mnemonic phrase");
+    }
+
+    // Import the mnemonic
+    if (!pwalletMain->ImportFromMnemonic(strSecurePhrase, strSecurePassphrase, strLanguage, strOutMnemonic)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Failed to import mnemonic");
+    }
+
+    // Rescan if requested
+    if (fRescan) {
+        CBlockIndex* pindex = chainActive.Genesis();
+        pwalletMain->ScanForWalletTransactions(pindex, true);
+        pwalletMain->ReacceptWalletTransactions();
+    }
+
+    // Clear sensitive data from memory
+    memory_cleanse(&strSecurePhrase[0], strSecurePhrase.size());
+    memory_cleanse(&strSecurePassphrase[0], strSecurePassphrase.size());
+    memory_cleanse(&strOutMnemonic[0], strOutMnemonic.size());
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("success", true);
+    result.pushKV("rescan", fRescan);
+    return result;
+}
+
+UniValue exportmnemonic(const JSONRPCRequest& request)
+{
+    if (!EnsureWalletIsAvailable(request.fHelp))
+        return NullUniValue;
+
+    if (request.fHelp || request.params.size() != 0)
+        throw runtime_error(
+            "exportmnemonic\n"
+            "\nExport the BIP39 mnemonic phrase of the wallet.\n"
+            "Requires wallet to be unlocked (if encrypted).\n"
+            "\nResult:\n"
+            "{\n"
+            "  \"mnemonic\": \"<mnemonic phrase>\",    (string) The BIP39 mnemonic phrase\n"
+            "  \"language\": \"<language code>\"        (string) The language code of the mnemonic\n"
+            "}\n"
+            "\nExamples:\n"
+            + HelpExampleCli("exportmnemonic", "")
+            + HelpExampleRpc("exportmnemonic", "")
+        );
+
+    LOCK2(cs_main, pwalletMain->cs_wallet);
+    EnsureWalletIsUnlocked();
+
+    if (!pwalletMain->HasMnemonic()) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Wallet does not have a BIP39 mnemonic phrase");
+    }
+
+    SecureString strMnemonic;
+    if (!pwalletMain->GetMnemonic(strMnemonic)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Failed to retrieve mnemonic phrase. Wallet may be locked.");
+    }
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("mnemonic", std::string(strMnemonic.begin(), strMnemonic.end()));
+    result.pushKV("language", pwalletMain->GetMnemonicLanguage());
+
+    // Clear sensitive data
+    memory_cleanse(&strMnemonic[0], strMnemonic.size());
+
+    return result;
+}

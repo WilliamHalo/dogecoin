@@ -176,6 +176,11 @@ public:
     //! write the hdchain model (external chain child index counter)
     bool WriteHDChain(const CHDChain& chain);
 
+    //! BIP39 mnemonic phrase operations
+    bool WriteMnemonic(const std::vector<unsigned char>& vchCryptedMnemonic, const std::vector<unsigned char>& vchSalt, const std::string& strLanguage);
+    bool ReadMnemonic(std::vector<unsigned char>& vchCryptedMnemonic, std::vector<unsigned char>& vchSalt, std::string& strLanguage);
+    bool EraseMnemonic();
+
     static void IncrementUpdateCounter();
     static unsigned int GetUpdateCounter();
 private:

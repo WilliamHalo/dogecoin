@@ -538,6 +538,12 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
                 return false;
             }
         }
+        else if (strType == "mnemonic")
+        {
+            // Mnemonic data is read as three separate keys: mnemonic, mnemonicsalt, mnemoniclang
+            // This is a placeholder - the actual reading happens in the wallet load process
+            // which combines these three pieces of data
+        }
     } catch (...)
     {
         return false;
@@ -949,6 +955,36 @@ bool CWalletDB::WriteHDChain(const CHDChain& chain)
 {
     nWalletDBUpdateCounter++;
     return Write(std::string("hdchain"), chain);
+}
+
+bool CWalletDB::WriteMnemonic(const std::vector<unsigned char>& vchCryptedMnemonic, const std::vector<unsigned char>& vchSalt, const std::string& strLanguage)
+{
+    nWalletDBUpdateCounter++;
+    bool ret = Write(std::string("mnemonic"), vchCryptedMnemonic, false);
+    if (!ret) return false;
+    ret = Write(std::string("mnemonicsalt"), vchSalt, false);
+    if (!ret) return false;
+    ret = Write(std::string("mnemoniclang"), strLanguage, false);
+    return ret;
+}
+
+bool CWalletDB::ReadMnemonic(std::vector<unsigned char>& vchCryptedMnemonic, std::vector<unsigned char>& vchSalt, std::string& strLanguage)
+{
+    bool ret = Read(std::string("mnemonic"), vchCryptedMnemonic);
+    if (!ret) return false;
+    ret = Read(std::string("mnemonicsalt"), vchSalt);
+    if (!ret) return false;
+    ret = Read(std::string("mnemoniclang"), strLanguage);
+    return ret;
+}
+
+bool CWalletDB::EraseMnemonic()
+{
+    nWalletDBUpdateCounter++;
+    bool ret = Erase(std::string("mnemonic"));
+    Erase(std::string("mnemonicsalt"));
+    Erase(std::string("mnemoniclang"));
+    return ret;
 }
 
 void CWalletDB::IncrementUpdateCounter()
